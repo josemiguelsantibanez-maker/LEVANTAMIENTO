@@ -742,20 +742,22 @@ function squareDirs(walls){
   const angs=walls.map(w=>({a:Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x), L:len(w)}));
   let best=null, bs=-1; for(const c of angs){ const sc=angs.reduce((s2,o)=>s2+(dif(o.a,c.a)<0.5*D?o.L:0),0); if(sc>bs){ bs=sc; best=c.a; } }
   let sx=0, sy=0; for(const o of angs) if(dif(o.a,best)<0.5*D){ sx+=o.L*Math.cos(4*o.a); sy+=o.L*Math.sin(4*o.a); }
-  const th=Math.atan2(sy,sx)/4, dir={}; let fixed=0;
+  const sq=db.settings.square!==false, tol=(db.settings.sqTol ?? 10)*D;
+  let th=Math.atan2(sy,sx)/4; const dir={}; let fixed=0; const angled=[];
+  // el edificio queda paralelo a los ejes (X/Y) si su orientación está cerca de ellos
+  if(sq && Math.abs(th)<tol) th=0;
   for(const w of walls){
     let a=Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x); const rel=a-th;
-    if(db.settings.square!==false){
-      const k90=Math.round(rel/(Math.PI/2)), d90=Math.abs(rel-k90*Math.PI/2);
-      const k45=Math.round(rel/(Math.PI/4)), d45=Math.abs(rel-k45*Math.PI/4);
-      if(d90<6*D){ if(d90>0.05*D) fixed++; a=th+k90*Math.PI/2; }
-      else if(d45<3*D){ if(d45>0.05*D) fixed++; a=th+k45*Math.PI/4; }
-    }
+    const k90=Math.round(rel/(Math.PI/2)), d90=Math.abs(rel-k90*Math.PI/2);
+    const k45=Math.round(rel/(Math.PI/4)), d45=Math.abs(rel-k45*Math.PI/4);
+    if(sq && d90<tol){ if(d90>0.05*D) fixed++; a=th+k90*Math.PI/2; }
+    else if(sq && d45<Math.min(tol/2,5*D)){ if(d45>0.05*D) fixed++; a=th+k45*Math.PI/4; }
+    else if(d90>0.05*D){ let deg=Math.round((rel-k90*Math.PI/2)/D); angled.push({w, deg}); }
     dir[w.id]={ux:Math.cos(a), uy:Math.sin(a)};
   }
   // muros alineados en un mismo eje: misma dirección
   for(const al of P.aligns){ if(dir[al.a] && dir[al.b]){ const A=dir[al.a], B=dir[al.b]; const sg=Math.sign(A.ux*B.ux+A.uy*B.uy)||1; dir[al.b]={ux:A.ux*sg, uy:A.uy*sg}; } }
-  return {dir, fixed};
+  return {dir, fixed, angled};
 }
 function rectify(){
   const walls=P.walls.filter(w=>len(w)>1e-6); if(!walls.length) return null;
@@ -769,7 +771,7 @@ function rectify(){
   for(const w of walls){
     const i=idx.get(w.a), j=idx.get(w.b); if(i===j) continue;
     const {ux,uy}=dir[w.id], nx=-uy, ny=ux;
-    row([[2*j,nx],[2*j+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);                 // dirección del croquis (enderezada)
+    row([[2*j,nx],[2*j+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e6);                 // dirección del croquis (enderezada)
     const target=axisTarget(w);
     row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], target, w.len!=null?1000:0.05); // largo medido (o el del croquis)
     info.push({w, target, faces:target-(w.len??target)});
@@ -778,7 +780,7 @@ function rectify(){
   for(let k=0;k<N;k++){ const q=nodes[k];
     for(const w of walls){ const i=idx.get(w.a), j=idx.get(w.b); if(k===i||k===j) continue;
       const r=segDist(q.x,q.y,w.a.x,w.a.y,w.b.x,w.b.y);
-      if(hostIds[k].has(w.id) || (r.d<0.05 && r.t>0.001 && r.t<0.999)){ const nx=-dir[w.id].uy, ny=dir[w.id].ux; row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);
+      if(hostIds[k].has(w.id) || (r.d<0.05 && r.t>0.001 && r.t<0.999)){ const nx=-dir[w.id].uy, ny=dir[w.id].ux; row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e6);
         // sin otra medida, el encuentro conserva su proporción a lo largo del muro
         row([[2*k,1],[2*i,-(1-r.t)],[2*j,-r.t]], 0, 0.05); row([[2*k+1,1],[2*i+1,-(1-r.t)],[2*j+1,-r.t]], 0, 0.05); } } }
   // cotas libres paralelas a un muro (p. ej. ubicación de un tabique) también se usan como medida
@@ -793,7 +795,7 @@ function rectify(){
   for(const al of P.aligns){
     const A=P.walls.find(w=>w.id===al.a), B=P.walls.find(w=>w.id===al.b); if(!A||!B||!dir[A.id]) continue;
     const nx=-dir[A.id].uy, ny=dir[A.id].ux, i=idx.get(A.a);
-    for(const q of [B.a,B.b]){ const k=idx.get(q); if(k!==i) row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4); }
+    for(const q of [B.a,B.b]){ const k=idx.get(q); if(k!==i) row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e6); }
   }
   for(let k=0;k<N;k++){ row([[2*k,1]],nodes[k].x,0.001); row([[2*k+1,1]],nodes[k].y,0.001); }
   const x=solveLin(M,v); if(!x) return null;
@@ -804,7 +806,7 @@ function rectify(){
   for(const q of pts){ const k=idx.get(q); q.x=x[2*k]; q.y=x[2*k+1]; }
   const bad=info.filter(it=>it.w.len!=null && Math.abs(len(it.w)-it.target)>0.02).map(it=>({w:it.w, got:len(it.w)-it.faces}));
   P.dirty=false; P.rectified=true; save(); fitView(); renderProps(); draw();
-  return {bad, fixed:SQ.fixed, aligns:P.aligns.length, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
+  return {bad, fixed:SQ.fixed, angled:SQ.angled, aligns:P.aligns.length, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
 }
 function deltaTxt(dl){ const cm=Math.round(dl*100); return (cm>0?'+':'')+cm+' cm'; }
 function showRectify(r){
@@ -814,7 +816,8 @@ function showRectify(r){
   const bad=r.bad.length ? `<h3>Medidas que no calzan</h3>`+r.bad.map(b=>`<p>⚠️ <b>${esc(b.w.name)}</b>: medida ${fmt(b.w.len)}, el dibujo cerró con ${fmt(b.got)} (${deltaTxt(b.got-b.w.len)}). Revisa esa medida o el trazo.</p>`).join('') : '';
   openSheet(`<h2>📐 Planta rectificada</h2>
     <p>Se usaron <b>${r.measured}</b> medidas, cada una según su cara (interior, exterior o eje). La planta ahora está a escala real.</p>
-    ${r.fixed?`<p>📐 ${r.fixed} muro(s) casi a escuadra se enderezaron.</p>`:''}
+    ${r.fixed?`<p>📐 ${r.fixed} muro(s) casi a escuadra se enderezaron. La planta queda paralela a los ejes.</p>`:''}
+    ${r.angled&&r.angled.length?`<h3>Muros que quedaron en ángulo</h3><p>${r.angled.map(x=>`<b>${esc(x.w.name)}</b> (${x.deg>0?'+':''}${x.deg}° fuera de escuadra)`).join(' · ')}</p><p style="color:var(--muted);font-size:13px">Si deben ir a escuadra, corrige su trazo con ✥ Corregir o sube la tolerancia en ☰ → Ajustes, y vuelve a rectificar.</p>`:''}
     ${r.aligns?`<p>≡ ${r.aligns} alineación(es) de eje respetadas.</p>`:''}
     ${r.unmeasured?`<p>⚠️ ${r.unmeasured} muro(s) sin medir conservaron el largo del croquis.</p>`:''}
     ${bad}${diag}
@@ -1529,7 +1532,8 @@ function openMenu(){
     <div class="f">Espesor tabique (m)<input id="sTab" type="number" step="0.01" inputmode="decimal" value="${s.tTab}"></div></div>
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
-    <label class="tg">Rectificar: enderezar ángulos casi rectos (±6°)<input type="checkbox" id="sSq" ${s.square!==false?'checked':''}></label>
+    <label class="tg">Rectificar: enderezar ángulos casi rectos<input type="checkbox" id="sSq" ${s.square!==false?'checked':''}></label>
+    <label class="tg">Tolerancia para enderezar (grados)<input id="sTol" type="number" step="1" min="1" max="30" inputmode="numeric" value="${s.sqTol??10}" style="width:70px;height:auto;padding:6px;border:1px solid var(--line);border-radius:8px;font:inherit"></label>
     <div class="grid2"><div class="f">Antepecho ventanas (m)<input id="sSill" type="number" step="0.01" inputmode="decimal" value="${s.sillDef??0.9}"></div>
     <div class="f">Altura muros sin recinto (m)<input id="sHDef" type="number" step="0.01" inputmode="decimal" value="${s.hDef??2.4}"></div></div>
     <label class="tg">Cara por defecto al medir muros
@@ -1566,6 +1570,7 @@ function openMenu(){
   $('#sTab').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tTab=v; save(); } };
   $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); orthoLabel(); };
   $('#sSq').onchange=e=>{ db.settings.square=e.target.checked; P.dirty=true; save(); };
+  $('#sTol').onchange=e=>{ const v=num(e.target.value); if(v>0 && v<=30){ db.settings.sqTol=v; P.dirty=true; save(); } };
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
   $('#xRVT').onclick=async()=>{
     if(!P.walls.length) return toast('Aún no hay muros');
