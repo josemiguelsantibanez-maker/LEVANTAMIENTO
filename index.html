@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#1f2a37">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Levantamiento — Croquis con láser</title>
+<style>
+:root{--bg:#f4f1ea;--ink:#1f2a37;--muted:#6b7280;--acc:#0f6fde;--ok:#15803d;--warn:#d97706;--danger:#b91c1c;--line:#d6d3cc;--dim:#7c3aed}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.app{display:flex;flex-direction:column;height:100%;height:100dvh}
+header{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--ink);color:#fff}
+header .title{flex:1;min-width:0;cursor:pointer}
+header .title b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .title span{font-size:12px;opacity:.7;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button{font:inherit;border:0;border-radius:10px;padding:10px 12px;background:#e7e4dc;color:var(--ink);cursor:pointer}
+button:active{transform:scale(.97)}
+button.pri{background:var(--acc);color:#fff}
+button.danger{background:#fde8e8;color:var(--danger)}
+button.ghost{background:transparent}
+.hbtn{background:rgba(255,255,255,.12);color:#fff;padding:8px 10px;font-size:14px;white-space:nowrap}
+.btbtn .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#9ca3af;margin-right:6px;vertical-align:middle}
+.btbtn.on .dot{background:#22c55e;box-shadow:0 0 0 3px rgba(34,197,94,.25)}
+.btbtn.busy .dot{background:#f59e0b}
+.last{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px;min-width:56px;text-align:right}
+.stage{position:relative;flex:1;overflow:hidden;touch-action:none}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
+.hint{position:absolute;left:10px;top:8px;right:120px;font-size:12px;color:var(--muted);pointer-events:none;line-height:1.35}
+.pill{position:absolute;right:10px;top:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600}
+.fab{position:absolute;right:10px;top:40px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:12px}
+#vanoBar{position:absolute;left:10px;top:52px;display:none}
+.tools{display:flex;gap:2px;padding:6px 4px;background:#fff;border-top:1px solid var(--line);overflow-x:auto;padding-bottom:max(6px,env(safe-area-inset-bottom))}
+.tool{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 3px;font-size:10.5px;background:transparent;min-width:44px}
+.tool svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tool.active{background:var(--ink);color:#fff}
+.sep{width:1px;background:var(--line);margin:4px 2px;flex:0 0 1px}
+.props{position:absolute;left:8px;right:8px;bottom:8px;background:#fff;border-radius:14px;box-shadow:0 6px 24px rgba(0,0,0,.18);padding:10px 12px;display:none;z-index:5}
+.props .row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.props .row+.row{margin-top:8px}
+.props .name{font-weight:700;font-size:15px}
+.props .sub{font-size:12px;color:var(--muted)}
+.props .val{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;margin-left:auto}
+.props .val.miss{color:var(--warn)}
+.props .val.okv{color:var(--ok)}
+.props input{font:inherit;padding:8px;border:1px solid var(--line);border-radius:8px;width:84px;font-variant-numeric:tabular-nums}
+.props input.wide{width:100%;flex:1}
+.props input.tgt{border-color:var(--acc);box-shadow:0 0 0 2px rgba(15,111,222,.25)}
+.props label{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:4px}
+.props button{padding:8px 10px;font-size:13px}
+.seg{display:inline-flex;background:#e7e4dc;border-radius:10px;padding:2px}
+.seg button{background:transparent;padding:6px 10px;font-size:13px}
+.seg button.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15)}
+.waiting{font-size:12px;color:var(--acc)}
+#toast{position:fixed;left:50%;top:64px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%;text-align:center;z-index:60}
+#toast.show{opacity:.95}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:50}
+.modal.show{display:flex}
+.sheet{background:#fff;width:100%;max-width:640px;max-height:88dvh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+.sheet h2{font-size:17px;margin:0 0 4px}
+.sheet h3{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:18px 0 8px}
+.sheet .f{display:flex;flex-direction:column;gap:4px;margin-bottom:10px;font-size:13px;color:var(--muted)}
+.sheet .f input{font:inherit;color:var(--ink);padding:10px;border:1px solid var(--line);border-radius:10px}
+.sheet .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.sheet .plist .it{display:flex;align-items:center;gap:8px;padding:10px;border:1px solid var(--line);border-radius:10px;margin-bottom:6px}
+.sheet .plist .it.cur{border-color:var(--acc);background:#eef5ff}
+.sheet .plist .it div{flex:1;min-width:0}
+.sheet .plist .it b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet .plist .it small{color:var(--muted)}
+.sheet .tg{display:flex;align-items:center;justify-content:space-between;padding:8px 0;font-size:14px}
+.sheet .tg input{width:22px;height:22px}
+.sheet p{font-size:14px;line-height:1.45;margin:6px 0}
+.sheet code{background:#f1efe9;padding:1px 4px;border-radius:4px;font-size:12px;word-break:break-all}
+.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+.big{display:block;width:100%;margin-bottom:8px;padding:14px;font-size:15px}
+#ped{position:fixed;inset:0;z-index:30;background:#111;display:none}
+#ped.show{display:flex}
+#ped .stage{background:#111}
+#ped .hint{color:#cbd5e1}
+#pedName{flex:1;min-width:0;font:inherit;font-size:15px;font-weight:700;background:transparent;border:0;border-bottom:1px dashed rgba(255,255,255,.35);color:#fff;padding:4px 2px}
+</style>
+</head>
+<body>
+<!-- ============ PLANO ============ -->
+<div class="app" id="planApp">
+  <header>
+    <div class="title" id="ptitle"><b id="pname">Levantamiento</b><span id="paddr">Toca para datos, proyectos y exportar</span></div>
+    <div class="last" title="Última medida">—</div>
+    <button class="hbtn btbtn"><span class="dot"></span>Láser</button>
+    <button class="hbtn" id="menuBtn" aria-label="Menú">☰</button>
+  </header>
+  <div class="stage" id="stage">
+    <canvas id="cv"></canvas>
+    <div class="hint" id="hint"></div>
+    <div class="pill" id="count">0/0</div>
+    <button class="fab" id="fitBtn">⤢ Encuadrar</button>
+    <div id="vanoBar" class="seg"><button data-op="door">Puerta</button><button data-op="win">Ventana</button><button data-op="gap">Vano vacío</button></div>
+    <div class="props" id="props"></div>
+  </div>
+  <nav class="tools">
+    <button class="tool" data-tool="ext"><svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" fill="currentColor"/></svg>Muro</button>
+    <button class="tool" data-tool="tab"><svg viewBox="0 0 24 24"><rect x="3" y="10.5" width="18" height="3" fill="currentColor"/></svg>Tabique</button>
+    <button class="tool" data-tool="vano"><svg viewBox="0 0 24 24"><path d="M2 20h5M17 20h5M7 20V6a10 10 0 0110 10v4"/></svg>Vano</button>
+    <button class="tool" data-tool="dim"><svg viewBox="0 0 24 24"><path d="M4 18L20 6M4 14v8M20 2v8"/></svg>Cota</button>
+    <button class="tool" data-tool="txt"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg>Texto</button>
+    <button class="tool" data-tool="foto"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto</button>
+    <button class="tool" data-tool="sel"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg>Elegir</button>
+    <span class="sep"></span>
+    <button class="tool" id="undoBtn"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>Deshacer</button>
+  </nav>
+</div>
+
+<!-- ============ EDITOR DE FOTO ============ -->
+<div class="app" id="ped">
+  <header>
+    <button class="hbtn" id="pedBack">‹ Plano</button>
+    <input id="pedName" placeholder="Descripción de la foto">
+    <div class="last">—</div>
+    <button class="hbtn btbtn"><span class="dot"></span>Láser</button>
+  </header>
+  <div class="stage" id="pstage">
+    <canvas id="pcv"></canvas>
+    <div class="hint" id="phint"></div>
+    <div class="pill" id="pcount">0/0</div>
+    <button class="fab" id="pfitBtn">⤢ Encuadrar</button>
+    <div class="props" id="pprops"></div>
+  </div>
+  <nav class="tools">
+    <button class="tool" data-ptool="arrow"><svg viewBox="0 0 24 24"><path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/></svg>Cota</button>
+    <button class="tool" data-ptool="note"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>Texto</button>
+    <button class="tool" data-ptool="sel"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg>Elegir</button>
+    <span class="sep"></span>
+    <button class="tool" id="pUndo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>Deshacer</button>
+    <button class="tool" id="pExport"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M4 15v5h16v-5"/></svg>Exportar</button>
+    <button class="tool" id="pDelPhoto"><svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>Borrar</button>
+  </nav>
+</div>
+
+<div id="toast"></div>
+<div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
+<input type="file" id="fileIn" accept=".json,application/json" hidden>
+<input type="file" id="camIn" accept="image/*" capture="environment" hidden>
+<input type="file" id="galIn" accept="image/*" hidden>
+
+<script>
+"use strict";
+/* ============ Constantes y estado ============ */
+const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
+const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
+const STORE = 'levantamientos_v1';
+const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true};
+const OPDEF = {door:0.80, win:1.20, gap:0.90};
+const OPNAME = {door:'Puerta', win:'Ventana', gap:'Vano vacío'};
+const OPPRE = {door:'P', win:'V', gap:'VN'};
+const $ = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const cv = $('#cv'), ctx = cv.getContext('2d');
+let db = {projects:[], current:null, settings:{...DEF_SET}};
+let P = null;
+let view = {s:40, ox:0, oy:0};
+let W = 0, H = 0, dpr = 1;
+let tool = 'ext', opKind = 'door';
+let sel = null;               // {kind:'wall'|'dim'|'label'|'open'|'photo', id, field}
+let draft = null;
+let undoStack = [];
+let lastMeasure = null;
+let bt = {dev:null, ch:null, state:'off', lastRaw:'', lastT:0, lastV:null};
+
+/* ============ Almacenamiento ============ */
+function load(){
+  try{
+    const r = localStorage.getItem(STORE);
+    if(r){ const d = JSON.parse(r); db.projects = d.projects||[]; db.current = d.current; db.settings = {...DEF_SET, ...(d.settings||{})}; }
+  }catch(e){}
+}
+let saveT = null;
+function save(){ clearTimeout(saveT); saveT = setTimeout(saveNow, 250); }
+function saveNow(){ try{ localStorage.setItem(STORE, JSON.stringify(db)); }catch(e){ toast('No se pudo guardar en el teléfono'); } }
+function normalize(p){
+  p.walls=p.walls||[]; p.dims=p.dims||[]; p.labels=p.labels||[]; p.openings=p.openings||[]; p.photos=p.photos||[]; p.log=p.log||[];
+  p.cnt=p.cnt||{}; p.fcnt=p.fcnt||0; p.seq=p.seq||1; return p;
+}
+function blankProject(name){
+  return normalize({id:'p'+Date.now()+Math.floor(Math.random()*1000), name:name||'Levantamiento', address:'', owner:'', date:new Date().toISOString().slice(0,10)});
+}
+function newProject(name){ const p = blankProject(name); db.projects.unshift(p); openProject(p.id); return p; }
+function openProject(id){
+  db.current = id; P = db.projects.find(p=>p.id===id);
+  if(!P){ P = blankProject(); db.projects.unshift(P); db.current = P.id; }
+  normalize(P); sel = null; draft = null; undoStack = [];
+  save(); updateHeader(); fitView(); renderProps(); draw();
+}
+
+/* IndexedDB para las fotos (no caben en el almacenamiento normal) */
+const idb = {
+  d:null,
+  open(){ return new Promise((res,rej)=>{ if(this.d) return res(this.d); const r=indexedDB.open('levantamiento_fotos',1);
+    r.onupgradeneeded=()=>r.result.createObjectStore('img'); r.onsuccess=()=>{ this.d=r.result; res(this.d); }; r.onerror=()=>rej(r.error); }); },
+  async tx(mode, fn){ const d=await this.open(); return new Promise((res,rej)=>{ const t=d.transaction('img',mode); const st=t.objectStore('img'); const rq=fn(st); t.oncomplete=()=>res(rq&&rq.result); t.onerror=()=>rej(t.error); }); },
+  put(k,v){ return this.tx('readwrite', st=>st.put(v,k)); },
+  get(k){ return this.tx('readonly', st=>st.get(k)); },
+  del(k){ return this.tx('readwrite', st=>st.delete(k)); }
+};
+
+/* ============ Utilidades ============ */
+const fmt = v => (v==null||isNaN(v)) ? '?' : v.toFixed(2);
+const r3 = v => Math.round(v*1000)/1000;
+function toast(msg, ms){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'), ms||2200); }
+function w2s(p, v){ v=v||view; return {x:p.x*v.s+v.ox, y:p.y*v.s+v.oy}; }
+function s2w(x, y){ return {x:(x-view.ox)/view.s, y:(y-view.oy)/view.s}; }
+function segDist(px,py,ax,ay,bx,by){
+  const dx=bx-ax, dy=by-ay, L2=dx*dx+dy*dy; let t = L2? ((px-ax)*dx+(py-ay)*dy)/L2 : 0;
+  t = Math.max(0, Math.min(1, t)); const x=ax+dx*t, y=ay+dy*t; return {d:Math.hypot(px-x,py-y), t, x, y};
+}
+const len = e => Math.hypot(e.b.x-e.a.x, e.b.y-e.a.y);
+const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(n)?null:n; };
+function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='photo'?p.photos : p.labels; }
+function getEl(s){ if(!s) return null; return arrOf(s.kind).find(e=>e.id===s.id)||null; }
+function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
+function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cnt:P.cnt, seq:P.seq}); }
+function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); }
+function undo(){
+  const s = undoStack.pop(); if(!s){ toast('Nada que deshacer'); return; }
+  Object.assign(P, JSON.parse(s)); sel=null; save(); renderProps(); draw();
+}
+function vibrate(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
+function nextName(prefix){ P.cnt[prefix]=(P.cnt[prefix]||0)+1; return prefix+P.cnt[prefix]; }
+
+/* ============ Diálogos ============ */
+function openSheet(html){ $('#sheet').innerHTML = html; $('#modal').classList.add('show'); }
+function closeSheet(){ $('#modal').classList.remove('show'); }
+$('#modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeSheet(); });
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function ask(title, msg, okText, danger){
+  return new Promise(res=>{
+    openSheet(`<h2>${esc(title)}</h2><p>${esc(msg)}</p><div class="actions"><button id="dNo">Cancelar</button><button id="dOk" class="${danger?'danger':'pri'}">${esc(okText||'Aceptar')}</button></div>`);
+    $('#dNo').onclick=()=>{closeSheet();res(false)}; $('#dOk').onclick=()=>{closeSheet();res(true)};
+  });
+}
+function askText(title, value, placeholder){
+  return new Promise(res=>{
+    openSheet(`<h2>${esc(title)}</h2><div class="f"><input id="dIn" value="${esc(value||'')}" placeholder="${esc(placeholder||'')}"></div><div class="actions"><button id="dNo">Cancelar</button><button id="dOk" class="pri">Aceptar</button></div>`);
+    const i=$('#dIn'); setTimeout(()=>i.focus(),50);
+    const ok=()=>{const v=i.value.trim(); closeSheet(); res(v||null)};
+    $('#dNo').onclick=()=>{closeSheet();res(null)}; $('#dOk').onclick=ok; i.onkeydown=e=>{if(e.key==='Enter')ok()};
+  });
+}
+
+/* ============ Vista del plano ============ */
+function resize(){
+  dpr = window.devicePixelRatio||1;
+  const r = $('#stage').getBoundingClientRect(); W = r.width; H = r.height; cv.width = Math.round(W*dpr); cv.height = Math.round(H*dpr); draw();
+  if(PE.open) pedResize();
+}
+function bounds(p){
+  p = p||P; let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
+  const add=q=>{x0=Math.min(x0,q.x);y0=Math.min(y0,q.y);x1=Math.max(x1,q.x);y1=Math.max(y1,q.y)};
+  p.walls.forEach(w=>{add(w.a);add(w.b)}); p.dims.forEach(d=>{add(d.a);add(d.b)}); p.labels.forEach(l=>add(l));
+  p.photos.forEach(f=>{ if(f.x!=null) add(f); });
+  return isFinite(x0) ? {x0,y0,x1,y1} : null;
+}
+function fitView(){
+  if(!W){ const r=$('#stage').getBoundingClientRect(); W=r.width; H=r.height; }
+  const b = P && bounds();
+  if(!b){ view.s = 40; view.ox = W/2; view.oy = H/2; draw(); return; }
+  const bw=Math.max(b.x1-b.x0,1), bh=Math.max(b.y1-b.y0,1);
+  view.s = Math.max(5, Math.min(300, Math.min((W-80)/bw, (H-150)/bh)));
+  view.ox = W/2 - (b.x0+bw/2)*view.s; view.oy = H/2 - (b.y0+bh/2)*view.s + 10; draw();
+}
+
+/* ============ Geometría de vanos ============ */
+function opGeom(o, p){
+  const w=wallOf(o,p); if(!w) return null; const L=len(w); if(L<1e-6) return null;
+  const k = w.len ? L/w.len : 1;                         // trazo por metro real
+  const sw = Math.min((o.len||OPDEF[o.kind])*k, L*0.98);
+  // la distancia se mide desde la cara interior del muro que llega a esa esquina
+  const rp = o.ref==='b' ? w.b : w.a; let face=0;
+  for(const x of (p||P).walls){ if(x===w) continue; for(const q of [x.a,x.b]) if(Math.abs(q.x-rp.x)<1e-6 && Math.abs(q.y-rp.y)<1e-6) face=Math.max(face, x.t/2); }
+  let c = (o.off!=null) ? (o.ref==='b' ? L-(face+o.off*k+sw/2) : face+o.off*k+sw/2) : o.t*L;
+  c = Math.max(sw/2, Math.min(L-sw/2, c));
+  const ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L;
+  return {w, L, k, sw, c, ux, uy, nx:-uy, ny:ux,
+    p1:{x:w.a.x+ux*(c-sw/2), y:w.a.y+uy*(c-sw/2)}, p2:{x:w.a.x+ux*(c+sw/2), y:w.a.y+uy*(c+sw/2)},
+    face, ref: o.ref==='b' ? {x:w.b.x-ux*face, y:w.b.y-uy*face} : {x:w.a.x+ux*face, y:w.a.y+uy*face}, refEdge: o.ref==='b' ? 'p2' : 'p1'};
+}
+function shortArc(c, cx, cy, r, a1, a2){ let d=a2-a1; while(d>Math.PI) d-=2*Math.PI; while(d<=-Math.PI) d+=2*Math.PI; c.arc(cx,cy,r,a1,a1+d,d<0); }
+
+/* ============ Dibujo del plano ============ */
+function drawGrid(c){
+  let step = 1; if(view.s<12) step=5; else if(view.s>90) step=0.5;
+  const w0=s2w(0,0), w1=s2w(W,H); c.lineWidth=1;
+  for(let pass=0; pass<2; pass++){
+    const st = pass===0? step : step*5; c.strokeStyle = pass===0? 'rgba(0,0,0,.05)' : 'rgba(0,0,0,.10)';
+    c.beginPath();
+    for(let x=Math.floor(w0.x/st)*st; x<=w1.x; x+=st){ const sx=Math.round(x*view.s+view.ox)+.5; c.moveTo(sx,0); c.lineTo(sx,H); }
+    for(let y=Math.floor(w0.y/st)*st; y<=w1.y; y+=st){ const sy=Math.round(y*view.s+view.oy)+.5; c.moveTo(0,sy); c.lineTo(W,sy); }
+    c.stroke();
+  }
+  c.fillStyle='rgba(0,0,0,.45)'; c.font='11px system-ui'; c.textAlign='right'; c.fillText('cuadrícula '+(step<1?step.toFixed(1):step)+' m', W-10, H-10); c.textAlign='left';
+}
+function upright(a){ if(a>Math.PI/2) a-=Math.PI; if(a<=-Math.PI/2) a+=Math.PI; return a; }
+function haloText(c, txt, x, y, ang, font, color){
+  c.save(); c.translate(x,y); c.rotate(ang||0); c.font=font; c.textAlign='center'; c.textBaseline='middle';
+  c.lineWidth=4; c.strokeStyle='rgba(255,255,255,.95)'; c.lineJoin='round'; c.strokeText(txt,0,0);
+  c.fillStyle=color; c.fillText(txt,0,0); c.restore();
+}
+function renderPlan(c, v, o){
+  o=o||{}; const k=o.k||1; const p=o.project||P; const bg=o.bg||'#f4f1ea';
+  const S = q=>w2s(q,v);
+  const isSel=(kind,id)=>o.sel && o.sel.kind===kind && o.sel.id===id;
+  const wpx = w => Math.max(w.type==='ext'?3:2, w.t*v.s);
+  // muros
+  const order = [...p.walls].sort((a,b)=>(a.type==='ext'?0:1)-(b.type==='ext'?0:1));
+  for(const w of order){
+    const a=S(w.a), b=S(w.b);
+    c.lineCap='square'; c.lineWidth=wpx(w); c.strokeStyle = w.type==='ext' ? '#2b2b2b' : '#7a7f87';
+    c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke();
+    if(isSel('wall',w.id)){ c.lineWidth=Math.max(6,w.t*v.s)+6; c.strokeStyle='rgba(15,111,222,.35)'; c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); }
+  }
+  // vanos
+  for(const op of p.openings){
+    const g=opGeom(op,p); if(!g) continue; const T=wpx(g.w);
+    const p1=S(g.p1), p2=S(g.p2); const nx=g.nx, ny=g.ny; const wPx=Math.hypot(p2.x-p1.x,p2.y-p1.y);
+    const selOp=isSel('open',op.id); const col= selOp?'#0f6fde':'#1f2a37';
+    c.lineCap='butt'; c.strokeStyle=bg; c.lineWidth=T+2; c.beginPath(); c.moveTo(p1.x,p1.y); c.lineTo(p2.x,p2.y); c.stroke();
+    c.strokeStyle=col; c.lineWidth=1.5*k; c.beginPath();
+    for(const q of [p1,p2]){ c.moveTo(q.x-nx*T/2,q.y-ny*T/2); c.lineTo(q.x+nx*T/2,q.y+ny*T/2); }
+    c.stroke();
+    if(op.kind==='win'){
+      c.lineWidth=1.2*k; c.beginPath();
+      for(const f of [-0.5,0,0.5]){ c.moveTo(p1.x+nx*T*f,p1.y+ny*T*f); c.lineTo(p2.x+nx*T*f,p2.y+ny*T*f); }
+      c.stroke();
+    } else if(op.kind==='door'){
+      const fl=op.flip||0; const hinge= (fl&1)?p2:p1, other=(fl&1)?p1:p2; const sd=(fl&2)?-1:1;
+      const le={x:hinge.x+nx*sd*wPx, y:hinge.y+ny*sd*wPx};
+      c.lineWidth=1.8*k; c.beginPath(); c.moveTo(hinge.x,hinge.y); c.lineTo(le.x,le.y); c.stroke();
+      c.lineWidth=1*k; c.setLineDash([4*k,3*k]); c.beginPath();
+      shortArc(c, hinge.x, hinge.y, wPx, Math.atan2(le.y-hinge.y,le.x-hinge.x), Math.atan2(other.y-hinge.y,other.x-hinge.x)); c.stroke(); c.setLineDash([]);
+    } else {
+      c.lineWidth=1*k; c.setLineDash([5*k,4*k]); c.beginPath();
+      for(const f of [-0.5,0.5]){ c.moveTo(p1.x+nx*T*f,p1.y+ny*T*f); c.lineTo(p2.x+nx*T*f,p2.y+ny*T*f); }
+      c.stroke(); c.setLineDash([]);
+    }
+    // rótulo del vano (lado opuesto a la cota del muro)
+    const ang=Math.atan2(p2.y-p1.y,p2.x-p1.x), ua=upright(ang); const ux2=-Math.sin(ua), uy2=Math.cos(ua);
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2; const off=T/2+11*k;
+    haloText(c, op.name+' '+fmt(op.len), mx+ux2*off, my+uy2*off, ua, `700 ${11*k}px system-ui`, op.len!=null?'#15803d':'#d97706');
+    if(selOp){
+      const r=S(g.ref), e=g.refEdge==='p1'?p1:p2; const o2=T/2+28*k;
+      c.strokeStyle='#0f6fde'; c.lineWidth=1.2*k; c.beginPath();
+      c.moveTo(r.x+ux2*o2, r.y+uy2*o2); c.lineTo(e.x+ux2*o2, e.y+uy2*o2);
+      for(const q of [r,e]){ c.moveTo(q.x+ux2*(o2-6*k), q.y+uy2*(o2-6*k)); c.lineTo(q.x+ux2*(o2+6*k), q.y+uy2*(o2+6*k)); }
+      c.stroke();
+      haloText(c, 'dist. '+fmt(op.off), (r.x+e.x)/2+ux2*(o2+10*k), (r.y+e.y)/2+uy2*(o2+10*k), ua, `600 ${11*k}px system-ui`, '#0f6fde');
+      c.fillStyle='#0f6fde'; c.beginPath(); c.arc(r.x,r.y,5*k,0,7); c.fill();
+    }
+  }
+  // cotas de muros
+  for(const w of p.walls){
+    const a=S(w.a), b=S(w.b); const ang=Math.atan2(b.y-a.y,b.x-a.x), ua=upright(ang);
+    const nx=-Math.sin(ua), ny=Math.cos(ua); const off=(wpx(w)/2+10*k);
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2; const measured = w.len!=null;
+    haloText(c, measured?fmt(w.len):'?', mx-nx*off, my-ny*off, ua, `700 ${13*k}px system-ui`, measured?'#15803d':'#d97706');
+    if(o.names && v.s>22) haloText(c, w.name||'', mx-nx*(off+14*k), my-ny*(off+14*k), ua, `${10*k}px system-ui`, '#9ca3af');
+  }
+  // cotas libres
+  for(const d of p.dims){
+    const a=S(d.a), b=S(d.b); const sd=isSel('dim',d.id);
+    const ang=Math.atan2(b.y-a.y,b.x-a.x), ua=upright(ang); const nx=-Math.sin(ang), ny=Math.cos(ang);
+    c.strokeStyle=sd?'#0f6fde':'#7c3aed'; c.lineWidth=(sd?2.5:1.3)*k; c.setLineDash([6*k,4*k]);
+    c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); c.setLineDash([]);
+    const tk=6*k; c.beginPath();
+    for(const q of [a,b]){ c.moveTo(q.x-nx*tk-Math.cos(ang)*tk*.7, q.y-ny*tk-Math.sin(ang)*tk*.7); c.lineTo(q.x+nx*tk+Math.cos(ang)*tk*.7, q.y+ny*tk+Math.sin(ang)*tk*.7); }
+    c.stroke();
+    const n2x=-Math.sin(ua), n2y=Math.cos(ua);
+    haloText(c, d.len!=null?fmt(d.len):'?', (a.x+b.x)/2-n2x*9*k, (a.y+b.y)/2-n2y*9*k, ua, `700 ${12*k}px system-ui`, d.len!=null?'#7c3aed':'#d97706');
+  }
+  // recintos
+  for(const l of p.labels){ const q=S(l); haloText(c, l.text, q.x, q.y, 0, `600 ${13*k}px system-ui`, isSel('label',l.id)?'#0f6fde':'#1f2a37'); }
+  // marcadores de fotos
+  for(const f of p.photos){
+    if(f.x==null) continue; const q=S(f); const r=11*k;
+    c.fillStyle='#1f2a37'; c.beginPath(); c.arc(q.x,q.y,r,0,7); c.fill();
+    c.strokeStyle='#fff'; c.lineWidth=1.5*k; c.strokeRect(q.x-6*k,q.y-3.5*k,12*k,8*k); c.beginPath(); c.arc(q.x,q.y+0.5*k,2.5*k,0,7); c.stroke();
+    haloText(c, f.name, q.x+r+10*k, q.y, 0, `700 ${11*k}px system-ui`, '#1f2a37');
+  }
+  if(o.ends){ c.fillStyle='#0f6fde'; for(const w of p.walls) for(const q of [S(w.a),S(w.b)]){ c.beginPath(); c.arc(q.x,q.y,2.5,0,7); c.fill(); } }
+  if(o.sel){
+    const e=getEl(o.sel); if(e && e.a){ for(const q of [S(e.a),S(e.b)]){ c.fillStyle='#fff'; c.strokeStyle='#0f6fde'; c.lineWidth=2; c.beginPath(); c.arc(q.x,q.y,7,0,7); c.fill(); c.stroke(); } }
+  }
+}
+function countFields(p){
+  p=p||P; let n=0,m=0;
+  for(const e of [...p.walls,...p.dims]){ n++; if(e.len!=null) m++; }
+  for(const o of p.openings){ n+=2; if(o.len!=null) m++; if(o.off!=null) m++; }
+  return {n,m};
+}
+function draw(){
+  if(!P || !W) return;
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+  drawGrid(ctx);
+  renderPlan(ctx, view, {sel, ends: tool!=='sel' && tool!=='vano' && tool!=='foto', names:true});
+  if(draft){
+    const a=w2s(draft.a), b=w2s(draft.b);
+    if(draft.kind==='dim'){ ctx.strokeStyle='#7c3aed'; ctx.lineWidth=1.5; ctx.setLineDash([6,4]); }
+    else { ctx.strokeStyle= draft.kind==='ext'?'rgba(43,43,43,.6)':'rgba(122,127,135,.6)'; ctx.lineCap='square';
+      ctx.lineWidth=Math.max(3,(draft.kind==='ext'?db.settings.tExt:db.settings.tTab)*view.s); }
+    ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.setLineDash([]);
+    haloText(ctx, '≈'+len(draft).toFixed(2), (a.x+b.x)/2, (a.y+b.y)/2-18, 0, 'italic 12px system-ui', '#6b7280');
+    for(const sp of [draft.sa, draft.snap]) if(sp && sp.kind!=='grid' && sp.kind!=='ortho'){ const q=w2s(sp); ctx.strokeStyle='#0f6fde'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(q.x,q.y,9,0,7); ctx.stroke(); }
+  }
+  const c=countFields(); $('#count').textContent = `Medidos ${c.m}/${c.n}`;
+}
+
+/* ============ Enganches ============ */
+function endpoints(exclPts){ const r=[]; for(const w of P.walls) r.push(w.a,w.b); for(const d of P.dims) r.push(d.a,d.b); return exclPts? r.filter(p=>!exclPts.includes(p)) : r; }
+function rayHits(f, ux, uy, exclW){
+  const hits=[];
+  for(const w of P.walls){
+    if(exclW && exclW.has(w)) continue;
+    const ex=w.b.x-w.a.x, ey=w.b.y-w.a.y, den=ux*ey-uy*ex; if(Math.abs(den)<1e-9) continue;
+    const ax=w.a.x-f.x, ay=w.a.y-f.y; const t=(ax*ey-ay*ex)/den, u=(ax*uy-ay*ux)/den;
+    if(u>=-1e-6 && u<=1+1e-6 && t>0.05) hits.push(t);
+  }
+  return hits;
+}
+function nearestOnWall(sx, sy, R, exclW){
+  let best=null, bd=R;
+  for(const w of P.walls){
+    if(exclW && exclW.has(w)) continue;
+    const a=w2s(w.a), b=w2s(w.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y);
+    if(r.d<bd){ bd=r.d; best={x:w.a.x+(w.b.x-w.a.x)*r.t, y:w.a.y+(w.b.y-w.a.y)*r.t, w, t:r.t}; }
+  }
+  return best;
+}
+function snapPoint(sx, sy, from, exclPts, exclW){
+  const R=22; let best=null, bd=R;
+  for(const p of endpoints(exclPts)){ const q=w2s(p); const d=Math.hypot(q.x-sx,q.y-sy); if(d<bd){ bd=d; best={x:p.x,y:p.y,kind:'end'}; } }
+  if(best) return best;
+  const w=s2w(sx,sy);
+  if(from && db.settings.ortho){
+    const dx=w.x-from.x, dy=w.y-from.y; const ang=Math.atan2(dy,dx); const step=Math.PI/4; const sn=Math.round(ang/step)*step;
+    if(Math.abs(ang-sn)<0.15){
+      const ux=Math.cos(sn), uy=Math.sin(sn); const proj=dx*ux+dy*uy;
+      let bh=null, bdh=R/view.s;
+      for(const t of rayHits(from,ux,uy,exclW)){ if(Math.abs(t-proj)<bdh){ bdh=Math.abs(t-proj); bh=t; } }
+      if(bh!=null) return {x:from.x+ux*bh, y:from.y+uy*bh, kind:'int'};
+      const L=Math.round(proj/0.05)*0.05; return {x:from.x+ux*L, y:from.y+uy*L, kind:'ortho'};
+    }
+  }
+  const on=nearestOnWall(sx,sy,16,exclW); if(on) return {x:on.x, y:on.y, kind:'on'};
+  return {x:Math.round(w.x/0.05)*0.05, y:Math.round(w.y/0.05)*0.05, kind:'grid'};
+}
+
+/* ============ Selección ============ */
+function hitTest(sx, sy){
+  let best=null, bd=Infinity;
+  for(const f of P.photos){ if(f.x==null) continue; const q=w2s(f); const d=Math.hypot(q.x-sx,q.y-sy); if(d<20 && d<bd){ bd=d; best={kind:'photo',id:f.id}; } }
+  if(best) return best;
+  for(const l of P.labels){ const q=w2s(l); const d=Math.hypot(q.x-sx,q.y-sy); if(d<26 && d<bd){ bd=d; best={kind:'label',id:l.id}; } }
+  if(best) return best;
+  for(const o of P.openings){ const g=opGeom(o); if(!g) continue; const a=w2s(g.p1), b=w2s(g.p2); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); if(r.d<Math.max(18,g.w.t*view.s/2+8) && r.d<bd){ bd=r.d; best={kind:'open',id:o.id,field:'len'}; } }
+  if(best) return best;
+  for(const d of P.dims){ const a=w2s(d.a), b=w2s(d.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); if(r.d<18 && r.d<bd){ bd=r.d; best={kind:'dim',id:d.id}; } }
+  for(const w of P.walls){ const a=w2s(w.a), b=w2s(w.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); const tol=Math.max(18, w.t*view.s/2+8); if(r.d<tol && r.d<bd){ bd=r.d; best={kind:'wall',id:w.id}; } }
+  return best;
+}
+function selCenter(){
+  const e=getEl(sel); if(!e) return null;
+  if(sel.kind==='open'){ const g=opGeom(e); return g? w2s({x:(g.p1.x+g.p2.x)/2, y:(g.p1.y+g.p2.y)/2}) : null; }
+  if(e.a) return w2s({x:(e.a.x+e.b.x)/2, y:(e.a.y+e.b.y)/2});
+  return w2s(e);
+}
+function ensureVisible(){
+  // si el elemento elegido queda tapado por el panel, sube la vista
+  const box=$('#props'); if(box.style.display==='none') return; const c=selCenter(); if(!c) return;
+  const top=H-box.offsetHeight-8; if(c.y>top-40){ view.oy-=c.y-(top-70); }
+  if(c.y<60){ view.oy+=60-c.y; }
+}
+function select(s){ if(s && s.kind==='photo'){ openPhoto(s.id); return; } sel=s; renderProps(); ensureVisible(); draw(); }
+const FIELDS = {wall:['len'], dim:['len'], open:['len','off']};
+function measurable(){
+  return [...P.walls.map(e=>({e,kind:'wall'})), ...P.dims.map(e=>({e,kind:'dim'})), ...P.openings.map(e=>({e,kind:'open'}))].sort((x,y)=>x.e.id-y.e.id);
+}
+function nextUnmeasured(fromId){
+  const list=measurable().map(x=>({...x, f:FIELDS[x.kind].find(f=>x.e[f]==null)})).filter(x=>x.f);
+  if(!list.length) return null; const n=list.find(x=>x.e.id>fromId)||list[0];
+  return {kind:n.kind, id:n.e.id, field:n.f};
+}
+
+/* ============ Panel de propiedades ============ */
+function renderProps(){
+  const box=$('#props'); const e=getEl(sel);
+  $('#vanoBar').style.display = (tool==='vano' && !e) ? 'inline-flex' : 'none';
+  if(!e){ box.style.display='none'; return; }
+  box.style.display='block';
+  const lm = lastMeasure!=null ? `<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>` : '';
+  const btLine = bt.state==='on' ? `<div class="row waiting">● Dispara la huincha: se llena el campo marcado en azul</div>` : '';
+  if(sel.kind==='label'){
+    box.innerHTML=`<div class="row"><span class="name">Texto</span><button class="ghost" id="pClose" style="margin-left:auto">✕</button></div>
+      <div class="row"><input class="wide" id="pText" value="${esc(e.text)}"><button class="danger" id="pDel">Borrar</button></div>`;
+    $('#pText').onchange=ev=>{ pushUndo(); e.text=ev.target.value||'—'; save(); draw(); };
+  } else if(sel.kind==='open'){
+    const w=wallOf(e); const f=sel.field||'len';
+    box.innerHTML=`<div class="row"><span class="name">${OPNAME[e.kind]} ${esc(e.name)}</span><span class="sub">en ${w?esc(w.name):'?'}</span>
+        <span class="val ${e.len!=null?'okv':'miss'}">${e.len!=null?fmt(e.len)+' m':'sin medir'}</span><button class="ghost" id="pClose">✕</button></div>
+      <div class="row"><span class="seg">${['door','win','gap'].map(k=>`<button data-ok="${k}" class="${e.kind===k?'on':''}">${k==='gap'?'Vano':OPNAME[k]}</button>`).join('')}</span>
+        ${e.kind==='door'?'<button id="pFlip">↻ Girar</button>':''}</div>
+      <div class="row">
+        <label>Ancho <input data-f="len" class="${f==='len'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.len??''}"></label>
+        <label>Dist.● <input data-f="off" class="${f==='off'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.off??''}"></label>
+        <label>Alto <input data-f="h" class="${f==='h'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.h??''}"></label>
+      </div>
+      <div class="row">${lm}
+        <button id="pRef" title="Cambia la esquina desde donde se mide la distancia (punto azul)">● Otra esquina</button>
+        <button id="pNext">Siguiente ›</button>
+        <button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>${btLine}`;
+    box.querySelectorAll('[data-ok]').forEach(b=>b.onclick=()=>{ const k=b.dataset.ok; if(k===e.kind) return; pushUndo(); e.kind=k; e.name=nextName(OPPRE[k]); save(); renderProps(); draw(); });
+    box.querySelectorAll('input[data-f]').forEach(inp=>{
+      inp.onfocus=()=>{ sel.field=inp.dataset.f; box.querySelectorAll('input[data-f]').forEach(x=>x.classList.toggle('tgt', x===inp)); };
+      inp.onchange=()=>{ pushUndo(); const v=num(inp.value); e[inp.dataset.f]= v==null?null:r3(v); save(); renderProps(); draw(); };
+    });
+    $('#pRef').onclick=()=>{
+      pushUndo(); const g=opGeom(e); if(!g) return; const had=e.off!=null;
+      e.t=g.c/g.L; e.ref = e.ref==='b'?'a':'b'; e.off=null;
+      if(had){ const g2=opGeom(e); const d = e.ref==='b' ? g2.L-(g2.c+g2.sw/2)-g2.face : (g2.c-g2.sw/2)-g2.face; e.off=r3(Math.max(0,d/g2.k)); }
+      save(); renderProps(); draw(); };
+    if($('#pFlip')) $('#pFlip').onclick=()=>{ pushUndo(); e.flip=((e.flip||0)+1)%4; save(); draw(); };
+  } else {
+    const isWall = sel.kind==='wall';
+    const title = isWall ? (e.type==='ext'?'Muro ':'Tabique ')+e.name : 'Cota '+e.name;
+    box.innerHTML=`<div class="row"><span class="name">${esc(title)}</span>
+        <span class="val ${e.len!=null?'okv':'miss'}">${e.len!=null?fmt(e.len)+' m':'sin medir'}</span><button class="ghost" id="pClose">✕</button></div>
+      <div class="row">
+        <label>Medida <input id="pLen" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.len??''}" placeholder="m"></label>
+        ${isWall?`<span class="seg"><button data-ty="ext" class="${e.type==='ext'?'on':''}">Muro</button><button data-ty="tab" class="${e.type==='tab'?'on':''}">Tabique</button></span>
+        <label>e <input id="pT" type="number" inputmode="decimal" step="0.01" value="${e.t}" style="width:62px"></label>`:''}
+      </div>
+      <div class="row">${lm}
+        <button id="pNext">Siguiente ›</button>
+        ${e.len!=null?'<button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo</button>':''}
+        <button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>${btLine}`;
+    $('#pLen').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.len = v==null?null:r3(v); save(); renderProps(); draw(); };
+    if(isWall){
+      box.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ const ty=b.dataset.ty; if(ty===e.type) return; pushUndo(); e.type=ty; e.t= ty==='ext'?db.settings.tExt:db.settings.tTab; e.name=nextName(ty==='ext'?'M':'T'); save(); renderProps(); draw(); });
+      $('#pT').onchange=ev=>{ const v=num(ev.target.value); if(v>0){ pushUndo(); e.t=r3(v); save(); draw(); } };
+    }
+    if($('#pFit')) $('#pFit').onclick=()=>fitStroke(e);
+  }
+  $('#pClose').onclick=()=>select(null);
+  if($('#pNext')) $('#pNext').onclick=()=>{ const n=nextUnmeasured(e.id); if(n) select(n); else toast('Todo está medido ✔'); };
+  if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
+  $('#pDel').onclick=()=>{
+    pushUndo(); const arr=arrOf(sel.kind); arr.splice(arr.indexOf(e),1);
+    if(sel.kind==='wall') P.openings=P.openings.filter(o=>o.wall!==e.id);
+    sel=null; save(); renderProps(); draw();
+  };
+}
+function fitStroke(e){
+  const L=len(e); if(!e.len || L<1e-6) return; pushUndo();
+  const ux=(e.b.x-e.a.x)/L, uy=(e.b.y-e.a.y)/L; const dx=e.a.x+ux*e.len-e.b.x, dy=e.a.y+uy*e.len-e.b.y; const ox=e.b.x, oy=e.b.y;
+  for(const p of endpoints()) if(Math.abs(p.x-ox)<1e-6 && Math.abs(p.y-oy)<1e-6){ p.x+=dx; p.y+=dy; }
+  save(); draw(); toast('Trazo ajustado a '+fmt(e.len)+' m');
+}
+
+/* ============ Medidas ============ */
+function assignMeasure(m, manual){
+  const e=getEl(sel); if(!e || !FIELDS[sel.kind]) return false;
+  const f = sel.field || 'len'; pushUndo(); e[f]=r3(m); save();
+  const lbl = sel.kind==='open' ? `${e.name} ${f==='len'?'ancho':f==='off'?'distancia':'alto'}` : e.name;
+  toast(`${lbl} = ${fmt(m)} m`); vibrate(40);
+  if(db.settings.auto && !manual){
+    const rest = FIELDS[sel.kind].find(x=>e[x]==null);
+    if(rest) sel={...sel, field:rest}; else { const n=nextUnmeasured(e.id); if(n) sel=n; }
+  }
+  renderProps(); ensureVisible(); draw(); return true;
+}
+function onMeasure(m){
+  m=r3(m); lastMeasure=m; $$('.last').forEach(x=>x.textContent=fmt(m));
+  P.log.push({t:Date.now(), v:m}); if(P.log.length>500) P.log.shift(); save();
+  if(PE.open){ pedMeasure(m); return; }
+  if(!assignMeasure(m)){ toast(`Medida ${fmt(m)} m recibida. Toca un elemento para asignarla.`, 3000); vibrate(20); renderProps(); }
+}
+
+/* ============ Bluetooth Bosch GLM ============ */
+function setBt(state){ bt.state=state; $$('.btbtn').forEach(b=>{ b.classList.toggle('on',state==='on'); b.classList.toggle('busy',state==='busy'); }); renderProps(); if(PE.open) pedProps(); }
+async function btWrite(bytes){
+  const d=new Uint8Array(bytes);
+  try{ if(bt.ch.writeValueWithoutResponse) await bt.ch.writeValueWithoutResponse(d); else await bt.ch.writeValue(d); }
+  catch(e){ try{ await bt.ch.writeValueWithResponse(d); }catch(e2){} }
+}
+function parseBosch(dv){
+  // Paquete de medida: C0 55 10 06 ... distancia float32 little-endian desde el byte 7 (metros)
+  if(dv.byteLength>=11 && dv.getUint8(0)===0xC0 && dv.getUint8(1)===0x55 && dv.getUint8(2)===0x10 && dv.getUint8(3)===0x06){
+    const m=dv.getFloat32(7,true); if(isFinite(m) && m>0.01 && m<300) return m;
+  }
+  return null;
+}
+function onBtData(ev){
+  const dv=ev.target.value; let hex=''; for(let i=0;i<dv.byteLength;i++) hex+=dv.getUint8(i).toString(16).padStart(2,'0')+' ';
+  bt.lastRaw=hex.trim();
+  const m=parseBosch(dv); if(m==null) return;
+  const now=Date.now(); if(bt.lastV!=null && Math.abs(m-bt.lastV)<1e-6 && now-bt.lastT<500) return;
+  bt.lastV=m; bt.lastT=now; onMeasure(m);
+}
+async function btConnect(){
+  if(!navigator.bluetooth){ btHelp(true); return; }
+  try{
+    setBt('busy');
+    if(!bt.dev){
+      bt.dev = await navigator.bluetooth.requestDevice({filters:[{services:[SVC]},{namePrefix:'GLM'},{namePrefix:'Bosch'}], optionalServices:[SVC]});
+      bt.dev.addEventListener('gattserverdisconnected', ()=>{ setBt('off'); toast('Huincha desconectada. Toca «Láser» para reconectar.', 3000); });
+    }
+    const srv=await bt.dev.gatt.connect();
+    const svc=await srv.getPrimaryService(SVC);
+    const ch=await svc.getCharacteristic(CHR);
+    bt.ch=ch; await ch.startNotifications();
+    if(!ch._hooked){ ch.addEventListener('characteristicvaluechanged', onBtData); ch._hooked=true; }
+    await btWrite([0xC0,0x55,0x02,0x01,0x00,0x1A]);   // activa el envío automático de cada medida
+    setBt('on'); toast('Huincha conectada ✔'); vibrate(60); keepAwake();
+  }catch(e){
+    setBt('off');
+    if(e && e.name==='NotFoundError') return;
+    toast('No se pudo conectar: '+(e && e.message || e), 4000);
+  }
+}
+function btHelp(noApi){
+  openSheet(`<h2>Conexión con la huincha</h2>
+   ${noApi?'<p><b>Este navegador no permite Bluetooth.</b> Abre la app desde su link en <b>Google Chrome</b> de Android.</p>':''}
+   <p>1. En la GLM 50-27 CG activa el Bluetooth.</p>
+   <p>2. Cierra MeasureOn: la huincha se conecta a una sola app a la vez.</p>
+   <p>3. Toca <b>Láser</b> y elige tu huincha.</p>
+   <p>Mientras tanto puedes escribir las medidas a mano.</p>
+   ${bt.lastRaw?`<h3>Diagnóstico</h3><p>Último paquete recibido:<br><code>${esc(bt.lastRaw)}</code></p>`:''}
+   <div class="actions">${bt.state==='on'?'<button class="danger" id="btOff">Desconectar</button>':''}<button class="pri" id="dOk">Entendido</button></div>`);
+  $('#dOk').onclick=closeSheet;
+  if($('#btOff')) $('#btOff').onclick=()=>{ try{ bt.dev.gatt.disconnect(); }catch(e){} closeSheet(); };
+}
+$$('.btbtn').forEach(b=>b.onclick=()=>{ if(bt.state==='on') btHelp(false); else btConnect(); });
+let wakeLock=null;
+async function keepAwake(){ try{ if('wakeLock' in navigator) wakeLock=await navigator.wakeLock.request('screen'); }catch(e){} }
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible' && bt.state==='on') keepAwake(); });
+
+/* ============ Herramientas del plano ============ */
+function setTool(t){
+  tool=t; draft=null;
+  $$('.tool[data-tool]').forEach(b=>b.classList.toggle('active', b.dataset.tool===t));
+  const Hn={ext:'Arrastra para dibujar un <b>muro de cerramiento</b>. Se engancha a extremos, muros y 45°/90°.',
+           tab:'Arrastra para dibujar un <b>tabique</b>. Puede partir o terminar sobre un muro.',
+           vano:'',
+           dim:'Arrastra para una <b>cota libre</b>: diagonales de control, retiros…',
+           txt:'Toca donde quieras escribir el <b>nombre del recinto</b>.',
+           foto:'Toca en el plano <b>desde dónde</b> tomas la foto.',
+           sel:'Toca para elegir · arrastra para mover la vista · arrastra un punto azul o un vano para corregir.'};
+  $('#hint').innerHTML = t==='vano' ? '' : Hn[t]+'<br>Dos dedos: mover y zoom.';
+  if(t==='vano'){ $('#hint').innerHTML='<span style="display:block;margin-top:40px">Elige el tipo y <b>toca un muro</b> donde va.</span>'; }
+  renderProps(); draw();
+}
+$$('.tool[data-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
+function setOpKind(k){ opKind=k; $$('#vanoBar [data-op]').forEach(b=>b.classList.toggle('on', b.dataset.op===k)); }
+$$('#vanoBar [data-op]').forEach(b=>b.onclick=()=>setOpKind(b.dataset.op));
+$('#undoBtn').onclick=undo; $('#fitBtn').onclick=fitView;
+
+/* ============ Interacción táctil del plano ============ */
+const pts=new Map(); let gest=null;
+function local(e, el){ const r=(el||cv).getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+cv.addEventListener('pointerdown', e=>{
+  cv.setPointerCapture(e.pointerId); const p=local(e); pts.set(e.pointerId,p);
+  if(pts.size===2){
+    draft=null; const [p1,p2]=[...pts.values()];
+    gest={type:'pinch', d0:Math.hypot(p1.x-p2.x,p1.y-p2.y), m0:{x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2}, v0:{...view}}; draw(); return;
+  }
+  if(pts.size>2) return;
+  gest={type:'one', start:p, moved:false, v0:{...view}};
+  if(tool==='ext'||tool==='tab'||tool==='dim'){
+    const s=snapPoint(p.x,p.y,null); draft={kind:tool, a:{x:s.x,y:s.y}, b:{x:s.x,y:s.y}, sa:s, snap:null};
+  } else if(tool==='sel'){
+    const el=getEl(sel);
+    if(el && el.a){
+      for(const end of ['a','b']){ const q=w2s(el[end]); if(Math.hypot(q.x-p.x,q.y-p.y)<24){
+        const o=el[end]; const moving=endpoints().filter(z=>Math.abs(z.x-o.x)<1e-6&&Math.abs(z.y-o.y)<1e-6);
+        const exclW=new Set(P.walls.filter(w=>moving.includes(w.a)||moving.includes(w.b)));
+        pushUndo(); gest={type:'drag', moving, exclW, start:p, moved:false}; return; } }
+    }
+    if(el && sel.kind==='open'){
+      const g=opGeom(el); if(g){ const a=w2s(g.p1), b=w2s(g.p2); if(segDist(p.x,p.y,a.x,a.y,b.x,b.y).d<26){
+        if(el.off!=null){ toast('La posición ya está medida: cambia la distancia en el panel'); }
+        else { pushUndo(); gest={type:'slide', op:el, start:p, moved:false}; } } }
+    }
+  }
+});
+cv.addEventListener('pointermove', e=>{
+  if(!pts.has(e.pointerId)) return; const p=local(e); pts.set(e.pointerId,p);
+  if(!gest) return;
+  if(gest.type==='pinch' && pts.size>=2){
+    const [p1,p2]=[...pts.values()]; const d=Math.hypot(p1.x-p2.x,p1.y-p2.y); const m={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2};
+    const s=Math.max(4, Math.min(500, gest.v0.s*d/gest.d0));
+    const wx=(gest.m0.x-gest.v0.ox)/gest.v0.s, wy=(gest.m0.y-gest.v0.oy)/gest.v0.s;
+    view.s=s; view.ox=m.x-wx*s; view.oy=m.y-wy*s; draw(); return;
+  }
+  if(gest.type==='one'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>8) gest.moved=true;
+    if(draft){ const s=snapPoint(p.x,p.y,draft.a); draft.b={x:s.x,y:s.y}; draft.snap=s; draw(); }
+    else if((tool==='sel'||tool==='vano'||tool==='foto'||tool==='txt') && gest.moved){ view.ox=gest.v0.ox+p.x-gest.start.x; view.oy=gest.v0.oy+p.y-gest.start.y; draw(); }
+  }
+  if(gest.type==='drag'){ gest.moved=true; const s=snapPoint(p.x,p.y,null,gest.moving,gest.exclW); for(const z of gest.moving){ z.x=s.x; z.y=s.y; } draw(); }
+  if(gest.type==='slide'){
+    gest.moved=true; const w=wallOf(gest.op); if(!w) return; const a=w2s(w.a), b=w2s(w.b);
+    gest.op.t=segDist(p.x,p.y,a.x,a.y,b.x,b.y).t; draw();
+  }
+});
+function endPointer(e){
+  if(!pts.has(e.pointerId)) return; pts.delete(e.pointerId);
+  if(!gest) return;
+  if(gest.type==='pinch'){ if(pts.size===0) gest=null; else { const p=[...pts.values()][0]; gest={type:'one',start:p,moved:true,v0:{...view}}; draft=null; } return; }
+  if(pts.size>0) return;
+  const g=gest; gest=null;
+  if(g.type==='drag'||g.type==='slide'){ if(!g.moved) undoStack.pop(); save(); draw(); return; }
+  if(draft){
+    const d=draft; draft=null;
+    if(!g.moved || len(d)*view.s<12 || len(d)<0.05){ select(hitTest(g.start.x,g.start.y)); return; }
+    pushUndo();
+    if(d.kind==='dim'){ const el={id:P.seq++, name:nextName('C'), a:d.a, b:d.b, len:null}; P.dims.push(el); sel={kind:'dim',id:el.id}; }
+    else { const el={id:P.seq++, type:d.kind, name:nextName(d.kind==='ext'?'M':'T'), a:d.a, b:d.b, t:d.kind==='ext'?db.settings.tExt:db.settings.tTab, len:null}; P.walls.push(el); sel={kind:'wall',id:el.id}; }
+    save(); renderProps(); ensureVisible(); draw(); return;
+  }
+  if(g.moved) return;
+  const h=hitTest(g.start.x,g.start.y);
+  if(tool==='vano'){
+    if(h && (h.kind==='open'||h.kind==='photo')){ select(h); return; }
+    const on=nearestOnWall(g.start.x,g.start.y,Math.max(22, 0.15*view.s));
+    if(!on){ toast('Toca sobre un muro o tabique'); return; }
+    pushUndo(); const el={id:P.seq++, kind:opKind, name:nextName(OPPRE[opKind]), wall:on.w.id, t:on.t, len:null, off:null, h:null, ref:'a', flip:0};
+    P.openings.push(el); sel={kind:'open',id:el.id,field:'len'}; save(); renderProps(); ensureVisible(); draw(); return;
+  }
+  if(tool==='txt'){
+    if(h && h.kind==='label'){ select(h); return; }
+    const w=s2w(g.start.x,g.start.y);
+    askText('Nombre del recinto','', 'Ej: Dormitorio 1, Baño, Cocina').then(t=>{ if(!t) return; pushUndo(); P.labels.push({id:P.seq++, x:w.x, y:w.y, text:t}); save(); draw(); });
+    return;
+  }
+  if(tool==='foto'){
+    if(h && h.kind==='photo'){ select(h); return; }
+    const w=s2w(g.start.x,g.start.y); askPhoto({x:w.x, y:w.y}); return;
+  }
+  select(h);
+}
+cv.addEventListener('pointerup', endPointer); cv.addEventListener('pointercancel', endPointer);
+cv.addEventListener('wheel', e=>{ e.preventDefault(); const p=local(e); const k=Math.exp(-e.deltaY*0.0015); const s=Math.max(4,Math.min(500,view.s*k));
+  const wx=(p.x-view.ox)/view.s, wy=(p.y-view.oy)/view.s; view.s=s; view.ox=p.x-wx*s; view.oy=p.y-wy*s; draw(); }, {passive:false});
+
+/* ============ Fotos: captura ============ */
+let pendingPos=null;
+function askPhoto(pos){
+  pendingPos=pos;
+  openSheet(`<h2>Agregar foto</h2><p>Después podrás dibujar flechas de cota y textos sobre ella.</p>
+    <button class="big pri" id="phCam">📷 Tomar foto</button><button class="big" id="phGal">🖼 Elegir de la galería</button>
+    <div class="actions"><button id="dNo">Cancelar</button></div>`);
+  $('#phCam').onclick=()=>{ closeSheet(); $('#camIn').click(); };
+  $('#phGal').onclick=()=>{ closeSheet(); $('#galIn').click(); };
+  $('#dNo').onclick=closeSheet;
+}
+async function onPickImage(e){
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  toast('Procesando foto…');
+  try{
+    const img=await loadImage(URL.createObjectURL(f));
+    const max=2000, sc=Math.min(1, max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*sc); c.height=Math.round(img.naturalHeight*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src);
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.85));
+    const id='ph'+Date.now()+Math.floor(Math.random()*1000);
+    await idb.put(id, blob);
+    P.fcnt=(P.fcnt||0)+1;
+    const ph={id, name:'F'+P.fcnt, caption:'', x:pendingPos?pendingPos.x:null, y:pendingPos?pendingPos.y:null, w:c.width, h:c.height, arrows:[], notes:[], seq:1};
+    P.photos.push(ph); save(); draw(); openPhoto(id);
+  }catch(err){ toast('No se pudo cargar la foto'); }
+}
+$('#camIn').onchange=onPickImage; $('#galIn').onchange=onPickImage;
+function loadImage(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+
+/* ============ Editor de fotos ============ */
+const pcv=$('#pcv'), pctx=pcv.getContext('2d');
+const PE={open:false, ph:null, img:null, v:{s:1,ox:0,oy:0}, W:0, H:0, tool:'arrow', sel:null, draft:null, undo:[]};
+async function openPhoto(id){
+  const ph=P.photos.find(f=>f.id===id); if(!ph) return;
+  let blob=null; try{ blob=await idb.get(id); }catch(e){}
+  if(!blob){ toast('La imagen de esta foto no está en este teléfono'); return; }
+  PE.ph=ph; PE.sel=null; PE.draft=null; PE.undo=[]; PE.open=true;
+  if(PE.img && PE.img.src) URL.revokeObjectURL(PE.img.src);
+  PE.img=await loadImage(URL.createObjectURL(blob));
+  $('#planApp').style.display='none'; $('#ped').classList.add('show');
+  $('#pedName').value=ph.caption||''; $('#pedName').placeholder=ph.name+' · descripción (ej: fachada norte)';
+  pedTool(ph.arrows.length?'sel':'arrow'); pedResize(); pedFit(); pedProps();
+}
+function closePhoto(){ PE.open=false; $('#ped').classList.remove('show'); $('#planApp').style.display=''; save(); resize(); }
+$('#pedBack').onclick=closePhoto;
+$('#pedName').onchange=e=>{ PE.ph.caption=e.target.value.trim(); save(); };
+function pedResize(){ const r=$('#pstage').getBoundingClientRect(); PE.W=r.width; PE.H=r.height; pcv.width=Math.round(PE.W*dpr); pcv.height=Math.round(PE.H*dpr); pedDraw(); }
+function pedFit(){ const ph=PE.ph; const s=Math.min(PE.W/ph.w, (PE.H-40)/ph.h); PE.v={s, ox:(PE.W-ph.w*s)/2, oy:(PE.H-ph.h*s)/2+12}; pedDraw(); }
+$('#pfitBtn').onclick=pedFit;
+const i2s=(p,v)=>({x:p.x*v.s+v.ox, y:p.y*v.s+v.oy});
+const s2i=(x,y)=>({x:(x-PE.v.ox)/PE.v.s, y:(y-PE.v.oy)/PE.v.s});
+function roundRect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+function boxText(c, txt, x, y, font, fg, bg, pad, border){
+  c.font=font; const tw=c.measureText(txt).width; const fs=parseFloat(font.match(/(\d+(\.\d+)?)px/)[1]);
+  const w=tw+pad*2, h=fs+pad*1.4; roundRect(c,x-w/2,y-h/2,w,h,Math.min(8,h/3)); c.fillStyle=bg; c.fill();
+  if(border){ c.strokeStyle=border; c.lineWidth=2; c.stroke(); }
+  c.fillStyle=fg; c.textAlign='center'; c.textBaseline='middle'; c.fillText(txt,x,y+1);
+}
+function renderPhoto(c, v, ph, img, o){
+  o=o||{}; const k=o.k||1;
+  c.drawImage(img, v.ox, v.oy, ph.w*v.s, ph.h*v.s);
+  for(const a of ph.arrows){
+    const A=i2s(a.a,v), B=i2s(a.b,v); const sd=o.sel && o.sel.kind==='arrow' && o.sel.id===a.id;
+    const col = sd ? '#38bdf8' : '#ffd400'; const ang=Math.atan2(B.y-A.y,B.x-A.x); const hl=14*k, hw=0.42;
+    for(const pass of [0,1]){
+      c.strokeStyle= pass? col : 'rgba(0,0,0,.75)'; c.fillStyle=c.strokeStyle; c.lineWidth=(pass?2.6:5.5)*k; c.lineCap='round';
+      c.beginPath(); c.moveTo(A.x,A.y); c.lineTo(B.x,B.y); c.stroke();
+      for(const [P0,an] of [[A,ang+Math.PI],[B,ang]]){
+        const ex=pass?0:2*k; c.beginPath(); c.moveTo(P0.x+Math.cos(an)*ex,P0.y+Math.sin(an)*ex);
+        c.lineTo(P0.x-Math.cos(an-hw)*(hl+ex), P0.y-Math.sin(an-hw)*(hl+ex)); c.lineTo(P0.x-Math.cos(an+hw)*(hl+ex), P0.y-Math.sin(an+hw)*(hl+ex)); c.closePath(); c.fill();
+      }
+    }
+    const txt = a.len!=null ? fmt(a.len)+' m' : '?';
+    boxText(c, txt, (A.x+B.x)/2, (A.y+B.y)/2, `800 ${15*k}px system-ui`, a.len!=null?(sd?'#38bdf8':'#ffd400'):'#fb923c', 'rgba(0,0,0,.78)', 7*k);
+    if(sd){ for(const q of [A,B]){ c.fillStyle='#fff'; c.strokeStyle='#38bdf8'; c.lineWidth=2; c.beginPath(); c.arc(q.x,q.y,8,0,7); c.fill(); c.stroke(); } }
+  }
+  for(const n of ph.notes){
+    const q=i2s(n,v); const sd=o.sel && o.sel.kind==='note' && o.sel.id===n.id;
+    boxText(c, n.text, q.x, q.y, `600 ${14*k}px system-ui`, '#111', 'rgba(255,255,255,.92)', 8*k, sd?'#0f6fde':null);
+  }
+}
+function pedDraw(){
+  if(!PE.open || !PE.img) return;
+  pctx.setTransform(dpr,0,0,dpr,0,0); pctx.fillStyle='#111'; pctx.fillRect(0,0,PE.W,PE.H);
+  renderPhoto(pctx, PE.v, PE.ph, PE.img, {sel:PE.sel});
+  const d=PE.draft; if(d){ const A=i2s(d.a,PE.v), B=i2s(d.b,PE.v); pctx.strokeStyle='#ffd400'; pctx.lineWidth=2.5; pctx.setLineDash([8,5]); pctx.beginPath(); pctx.moveTo(A.x,A.y); pctx.lineTo(B.x,B.y); pctx.stroke(); pctx.setLineDash([]); }
+  const n=PE.ph.arrows.length, m=PE.ph.arrows.filter(a=>a.len!=null).length; $('#pcount').textContent=`Medidas ${m}/${n}`;
+}
+function pedTool(t){
+  PE.tool=t; PE.draft=null; $$('[data-ptool]').forEach(b=>b.classList.toggle('active', b.dataset.ptool===t));
+  $('#phint').innerHTML = {arrow:'Arrastra entre los dos puntos que vas a medir: queda una <b>flecha de cota</b>.', note:'Toca para escribir una <b>nota</b> sobre la foto.', sel:'Toca para elegir · arrastra para mover · puntos azules para ajustar.'}[t]+'<br>Dos dedos: mover y zoom.';
+  pedDraw();
+}
+$$('[data-ptool]').forEach(b=>b.onclick=()=>pedTool(b.dataset.ptool));
+function pedGet(){ const s=PE.sel; if(!s) return null; return (s.kind==='arrow'?PE.ph.arrows:PE.ph.notes).find(x=>x.id===s.id)||null; }
+function pedPush(){ PE.undo.push(JSON.stringify({arrows:PE.ph.arrows, notes:PE.ph.notes, seq:PE.ph.seq})); if(PE.undo.length>60) PE.undo.shift(); }
+$('#pUndo').onclick=()=>{ const s=PE.undo.pop(); if(!s) return toast('Nada que deshacer'); Object.assign(PE.ph, JSON.parse(s)); PE.sel=null; save(); pedProps(); pedDraw(); };
+function pedSelect(s){ PE.sel=s; pedProps(); pedDraw(); }
+function pedHit(x,y){
+  let best=null, bd=Infinity;
+  for(const n of PE.ph.notes){ const q=i2s(n,PE.v); const d=Math.hypot(q.x-x,q.y-y); if(d<34 && d<bd){ bd=d; best={kind:'note',id:n.id}; } }
+  if(best) return best;
+  for(const a of PE.ph.arrows){ const A=i2s(a.a,PE.v), B=i2s(a.b,PE.v); const r=segDist(x,y,A.x,A.y,B.x,B.y); if(r.d<22 && r.d<bd){ bd=r.d; best={kind:'arrow',id:a.id}; } }
+  return best;
+}
+function pedProps(){
+  const box=$('#pprops'); const e=pedGet(); if(!e){ box.style.display='none'; return; }
+  box.style.display='block';
+  if(PE.sel.kind==='note'){
+    box.innerHTML=`<div class="row"><span class="name">Nota</span><button class="ghost" id="qClose" style="margin-left:auto">✕</button></div>
+      <div class="row"><input class="wide" id="qText" value="${esc(e.text)}"><button class="danger" id="qDel">Borrar</button></div>`;
+    $('#qText').onchange=ev=>{ pedPush(); e.text=ev.target.value||'—'; save(); pedDraw(); };
+  } else {
+    box.innerHTML=`<div class="row"><span class="name">Cota ${esc(e.name)}</span>
+        <span class="val ${e.len!=null?'okv':'miss'}">${e.len!=null?fmt(e.len)+' m':'sin medir'}</span><button class="ghost" id="qClose">✕</button></div>
+      <div class="row"><label>Medida <input id="qLen" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.len??''}"></label>
+        ${lastMeasure!=null?`<button id="qUse">Usar ${fmt(lastMeasure)}</button>`:''}
+        <button class="danger" id="qDel" style="margin-left:auto">Borrar</button></div>
+      ${bt.state==='on'?'<div class="row waiting">● Dispara la huincha: la medida va a esta flecha</div>':''}`;
+    $('#qLen').onchange=ev=>{ pedPush(); const v=num(ev.target.value); e.len=v==null?null:r3(v); save(); pedProps(); pedDraw(); };
+    if($('#qUse')) $('#qUse').onclick=()=>pedAssign(lastMeasure, true);
+  }
+  $('#qClose').onclick=()=>pedSelect(null);
+  $('#qDel').onclick=()=>{ pedPush(); const arr=PE.sel.kind==='arrow'?PE.ph.arrows:PE.ph.notes; arr.splice(arr.indexOf(e),1); PE.sel=null; save(); pedProps(); pedDraw(); };
+}
+function pedAssign(m, manual){
+  const e=pedGet(); if(!e || PE.sel.kind!=='arrow') return false;
+  pedPush(); e.len=r3(m); save(); toast(`${e.name} = ${fmt(m)} m`); vibrate(40);
+  if(db.settings.auto && !manual){ const n=PE.ph.arrows.find(a=>a.len==null && a.id>e.id) || PE.ph.arrows.find(a=>a.len==null); if(n) PE.sel={kind:'arrow',id:n.id}; }
+  pedProps(); pedDraw(); return true;
+}
+function pedMeasure(m){ if(!pedAssign(m)) toast(`Medida ${fmt(m)} m recibida. Toca una flecha para asignarla.`, 3000); else return; pedProps(); }
+const ppts=new Map(); let pg=null;
+pcv.addEventListener('pointerdown', e=>{
+  pcv.setPointerCapture(e.pointerId); const p=local(e,pcv); ppts.set(e.pointerId,p);
+  if(ppts.size===2){ PE.draft=null; const [a,b]=[...ppts.values()]; pg={type:'pinch', d0:Math.hypot(a.x-b.x,a.y-b.y), m0:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}, v0:{...PE.v}}; pedDraw(); return; }
+  if(ppts.size>2) return;
+  pg={type:'one', start:p, moved:false, v0:{...PE.v}};
+  if(PE.tool==='arrow'){ const q=s2i(p.x,p.y); PE.draft={a:q,b:{...q}}; }
+  else if(PE.tool==='sel'){
+    const el=pedGet();
+    if(el && PE.sel.kind==='arrow'){ for(const end of ['a','b']){ const q=i2s(el[end],PE.v); if(Math.hypot(q.x-p.x,q.y-p.y)<26){ pedPush(); pg={type:'drag', pt:el[end], start:p, moved:false}; return; } } }
+    if(el && PE.sel.kind==='note'){ const q=i2s(el,PE.v); if(Math.hypot(q.x-p.x,q.y-p.y)<34){ pedPush(); pg={type:'drag', pt:el, start:p, moved:false}; return; } }
+  }
+});
+pcv.addEventListener('pointermove', e=>{
+  if(!ppts.has(e.pointerId)) return; const p=local(e,pcv); ppts.set(e.pointerId,p); if(!pg) return;
+  if(pg.type==='pinch' && ppts.size>=2){
+    const [a,b]=[...ppts.values()]; const d=Math.hypot(a.x-b.x,a.y-b.y); const m={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+    const s=Math.max(0.02, Math.min(20, pg.v0.s*d/pg.d0)); const wx=(pg.m0.x-pg.v0.ox)/pg.v0.s, wy=(pg.m0.y-pg.v0.oy)/pg.v0.s;
+    PE.v={s, ox:m.x-wx*s, oy:m.y-wy*s}; pedDraw(); return;
+  }
+  if(pg.type==='one'){
+    if(Math.hypot(p.x-pg.start.x,p.y-pg.start.y)>8) pg.moved=true;
+    if(PE.draft){ PE.draft.b=s2i(p.x,p.y); pedDraw(); }
+    else if(pg.moved){ PE.v={...PE.v, ox:pg.v0.ox+p.x-pg.start.x, oy:pg.v0.oy+p.y-pg.start.y}; pedDraw(); }
+  }
+  if(pg.type==='drag'){ pg.moved=true; const q=s2i(p.x,p.y); pg.pt.x=q.x; pg.pt.y=q.y; pedDraw(); }
+});
+function pedEnd(e){
+  if(!ppts.has(e.pointerId)) return; ppts.delete(e.pointerId); if(!pg) return;
+  if(pg.type==='pinch'){ if(ppts.size===0) pg=null; else { const p=[...ppts.values()][0]; pg={type:'one',start:p,moved:true,v0:{...PE.v}}; PE.draft=null; } return; }
+  if(ppts.size>0) return;
+  const g=pg; pg=null;
+  if(g.type==='drag'){ if(!g.moved) PE.undo.pop(); save(); pedDraw(); return; }
+  if(PE.draft){
+    const d=PE.draft; PE.draft=null; const A=i2s(d.a,PE.v), B=i2s(d.b,PE.v);
+    if(!g.moved || Math.hypot(B.x-A.x,B.y-A.y)<20){ pedSelect(pedHit(g.start.x,g.start.y)); return; }
+    pedPush(); const id=PE.ph.seq++; const ar={id, name:'c'+(PE.ph.arrows.length+1), a:d.a, b:d.b, len:null};
+    PE.ph.arrows.push(ar); PE.sel={kind:'arrow',id}; save(); pedProps(); pedDraw(); return;
+  }
+  if(g.moved) return;
+  const h=pedHit(g.start.x,g.start.y);
+  if(PE.tool==='note' && !h){
+    const q=s2i(g.start.x,g.start.y);
+    askText('Nota sobre la foto','', 'Ej: altura bajo viga, medida a eje de pilar').then(t=>{ if(!t) return; pedPush(); const id=PE.ph.seq++; PE.ph.notes.push({id,x:q.x,y:q.y,text:t}); PE.sel={kind:'note',id}; save(); pedProps(); pedDraw(); });
+    return;
+  }
+  pedSelect(h);
+}
+pcv.addEventListener('pointerup', pedEnd); pcv.addEventListener('pointercancel', pedEnd);
+pcv.addEventListener('wheel', e=>{ e.preventDefault(); const p=local(e,pcv); const k=Math.exp(-e.deltaY*0.0015); const s=Math.max(0.02,Math.min(20,PE.v.s*k));
+  const wx=(p.x-PE.v.ox)/PE.v.s, wy=(p.y-PE.v.oy)/PE.v.s; PE.v={s, ox:p.x-wx*s, oy:p.y-wy*s}; pedDraw(); }, {passive:false});
+async function buildPhotoJPG(ph, img){
+  const footer=Math.round(ph.w*0.06); const c=document.createElement('canvas'); c.width=ph.w; c.height=ph.h+footer; const x=c.getContext('2d');
+  const k=Math.max(1, ph.w/700);
+  renderPhoto(x, {s:1,ox:0,oy:0}, ph, img, {k});
+  x.fillStyle='#1f2a37'; x.fillRect(0,ph.h,ph.w,footer); x.fillStyle='#fff'; x.textBaseline='middle'; x.textAlign='left';
+  x.font=`600 ${Math.round(footer*0.38)}px system-ui`;
+  x.fillText([P.name, ph.name+(ph.caption?' · '+ph.caption:''), P.address].filter(Boolean).join('  —  '), footer*0.4, ph.h+footer/2);
+  return new Promise(r=>c.toBlob(r,'image/jpeg',0.9));
+}
+$('#pExport').onclick=async()=>{ const b=await buildPhotoJPG(PE.ph, PE.img); shareOrDownload(b, safeName()+'_'+PE.ph.name+'.jpg'); };
+$('#pDelPhoto').onclick=async()=>{
+  const ok=await ask('Borrar foto', `Se borrará ${PE.ph.name} con sus cotas y notas.`, 'Borrar', true); if(!ok) return;
+  const id=PE.ph.id; P.photos=P.photos.filter(f=>f.id!==id); try{ await idb.del(id); }catch(e){} closePhoto(); toast('Foto borrada');
+};
+
+/* ============ Exportar ============ */
+function safeName(){ return (P.name||'levantamiento').replace(/[^\w\-áéíóúñÁÉÍÓÚÑ ]+/g,'').trim().replace(/\s+/g,'_') || 'levantamiento'; }
+async function shareOrDownload(blob, filename){
+  try{
+    const file=new File([blob], filename, {type:blob.type});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file], title:filename}); return; }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=filename; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+function dxfStr(s){ return String(s).replace(/[^\x20-\x7e]/g, c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0')); }
+function buildDXF(p){
+  p=p||P; const L=[]; const add=(...a)=>{ for(const x of a) L.push(String(x)); }; const f=n=>(+n).toFixed(4);
+  const layers=[['MUROS',7],['TABIQUES',8],['EJES',9],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
+  add(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',0,'ENDSEC');
+  add(0,'SECTION',2,'TABLES');
+  add(0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,'0.0',0,'ENDTAB');
+  add(0,'TABLE',2,'LAYER',70,layers.length); for(const [n,c] of layers) add(0,'LAYER',2,n,70,0,62,c,6,'CONTINUOUS'); add(0,'ENDTAB',0,'ENDSEC');
+  add(0,'SECTION',2,'ENTITIES');
+  const line=(l,a,b)=>add(0,'LINE',8,l,10,f(a.x),20,f(-a.y),30,0,11,f(b.x),21,f(-b.y),31,0);
+  const text=(l,x,y,h,s,deg)=>add(0,'TEXT',8,l,10,f(x),20,f(-y),30,0,40,f(h),1,dxfStr(s),50,f(deg||0),72,1,11,f(x),21,f(-y),31,0);
+  const arcDeg=(cx,cy,r,a1,a2)=>add(0,'ARC',8,'VANOS',10,f(cx),20,f(-cy),30,0,40,f(r),50,f(a1),51,f(a2));
+  const upDeg=(a,b)=>{ let ang=Math.atan2(-(b.y-a.y), b.x-a.x); if(ang>Math.PI/2) ang-=Math.PI; if(ang<=-Math.PI/2) ang+=Math.PI; return ang; };
+  for(const w of p.walls){
+    const Lw=len(w); if(Lw<1e-6) continue; const ux=(w.b.x-w.a.x)/Lw, uy=(w.b.y-w.a.y)/Lw, nx=-uy, ny=ux, h=w.t/2;
+    const lay=w.type==='ext'?'MUROS':'TABIQUES';
+    const pt=(s,side)=>({x:w.a.x+ux*s+nx*h*side, y:w.a.y+uy*s+ny*h*side});
+    // tramos del contorno interrumpidos por los vanos
+    const gaps=p.openings.filter(o=>o.wall===w.id).map(o=>opGeom(o,p)).filter(Boolean).map(g=>[g.c-g.sw/2, g.c+g.sw/2]).sort((a,b)=>a[0]-b[0]);
+    let s0=-h; const segs=[];
+    for(const [g0,g1] of gaps){ if(g0>s0) segs.push([s0,g0]); s0=Math.max(s0,g1); }
+    if(Lw+h>s0) segs.push([s0,Lw+h]);
+    for(const [a0,a1] of segs){ line(lay,pt(a0,1),pt(a1,1)); line(lay,pt(a0,-1),pt(a1,-1)); }
+    for(const [g0,g1] of gaps){ line(lay,pt(g0,1),pt(g0,-1)); line(lay,pt(g1,1),pt(g1,-1)); }
+    line('EJES',w.a,w.b);
+    const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
+    const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
+    text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len):'?')+'  ('+w.name+')', ang*180/Math.PI);
+  }
+  for(const o of p.openings){
+    const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
+    if(o.kind==='win'){ for(const sd of [-1/6,1/6]) line('VANOS',{x:g.p1.x+g.nx*g.w.t*sd,y:g.p1.y+g.ny*g.w.t*sd},{x:g.p2.x+g.nx*g.w.t*sd,y:g.p2.y+g.ny*g.w.t*sd}); }
+    if(o.kind==='door'){
+      const fl=o.flip||0; const hinge=(fl&1)?g.p2:g.p1, other=(fl&1)?g.p1:g.p2; const sd=(fl&2)?-1:1; const r=g.sw;
+      const le={x:hinge.x+g.nx*sd*r, y:hinge.y+g.ny*sd*r}; line('VANOS',hinge,le);
+      const A1=Math.atan2(-(le.y-hinge.y), le.x-hinge.x)*180/Math.PI, A2=Math.atan2(-(other.y-hinge.y), other.x-hinge.x)*180/Math.PI;
+      if(((A2-A1)%360+360)%360<=180) arcDeg(hinge.x,hinge.y,r,A1,A2); else arcDeg(hinge.x,hinge.y,r,A2,A1);
+    }
+    const ang=upDeg(g.p1,g.p2); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(g.p1.x+g.p2.x)/2, myD=-(g.p1.y+g.p2.y)/2, off=h+0.12;
+    const t=`${o.name} a=${fmt(o.len)}`+(o.off!=null?` d=${fmt(o.off)}`:'')+(o.h!=null?` h=${fmt(o.h)}`:'');
+    text(o.len!=null?'VANOS':'SIN_MEDIR', mx-tnx*off, -(myD-tny*off), 0.1, t, ang*180/Math.PI);
+  }
+  for(const d of p.dims){
+    line('DIAGONALES',d.a,d.b);
+    const ang=upDeg(d.a,d.b); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(d.a.x+d.b.x)/2, myD=-(d.a.y+d.b.y)/2;
+    text(d.len!=null?'DIAGONALES':'SIN_MEDIR', mx+tnx*0.1, -(myD+tny*0.1), 0.1, (d.len!=null?fmt(d.len):'?')+'  ('+d.name+')', ang*180/Math.PI);
+  }
+  for(const l of p.labels) text('RECINTOS', l.x, l.y, 0.2, l.text, 0);
+  for(const ph of p.photos) if(ph.x!=null) text('FOTOS', ph.x, ph.y, 0.15, ph.name+(ph.caption?' '+ph.caption:''), 0);
+  const b=bounds(p);
+  if(b){
+    const x=b.x0, y=b.y0-1.2;
+    text('NOTAS', x+4, y, 0.3, p.name||'Levantamiento', 0);
+    text('NOTAS', x+4, y+0.45, 0.18, [p.address,p.owner,p.date].filter(Boolean).join(' - '), 0);
+    text('NOTAS', x+4, y+0.75, 0.14, 'Croquis de levantamiento. Medidas en metros. Trazo aproximado: valen las cotas.', 0);
+  }
+  add(0,'ENDSEC',0,'EOF');
+  return L.join('\r\n')+'\r\n';
+}
+function buildPNG(){
+  return new Promise(res=>{
+    const b=bounds(); if(!b){ res(null); return; }
+    const bw=Math.max(b.x1-b.x0,1), bh=Math.max(b.y1-b.y0,1);
+    const k=2, maxSide=2200, pad=120; const s=Math.min(160, (maxSide-2*pad)/Math.max(bw,bh));
+    const cw=Math.round(bw*s+2*pad), head=150; const ch=Math.round(bh*s+2*pad+head);
+    const c=document.createElement('canvas'); c.width=cw; c.height=ch; const x=c.getContext('2d');
+    x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
+    x.fillStyle='#1f2a37'; x.font='700 40px system-ui'; x.fillText(P.name||'Levantamiento', pad, 64);
+    x.font='26px system-ui'; x.fillStyle='#4b5563'; x.fillText([P.address,P.owner,P.date].filter(Boolean).join('  ·  '), pad, 104);
+    x.font='italic 20px system-ui'; x.fillText('Croquis de levantamiento — medidas en metros — trazo aproximado', pad, 136);
+    renderPlan(x, {s, ox:pad-b.x0*s, oy:head+pad-b.y0*s}, {k, names:true, bg:'#fff'});
+    c.toBlob(res,'image/png');
+  });
+}
+function buildCSV(){
+  const n=v=>v==null?'':String(v.toFixed(2)).replace('.',',');
+  const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
+  for(const {e,kind} of measurable()){
+    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+(e.ref==='b'?'extremo final':'extremo inicial')+')':''):'', '', n(e.len), n(e.off), n(e.h), g?n(g.sw):'']); }
+    else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), '', '', n(len(e))]);
+  }
+  for(const l of P.labels) rows.push(['', 'Recinto', '', '', '', '', '', l.text]);
+  for(const ph of P.photos) for(const a of ph.arrows) rows.push([ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '']);
+  return '﻿'+rows.map(r=>r.map(c=>/[;"\n]/.test(c)?'"'+String(c).replace(/"/g,'""')+'"':c).join(';')).join('\r\n');
+}
+function blobToDataURL(b){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(b); }); }
+async function buildBackup(){
+  const imgs={}; for(const ph of P.photos){ try{ const b=await idb.get(ph.id); if(b) imgs[ph.id]=await blobToDataURL(b); }catch(e){} }
+  return JSON.stringify({app:'levantamiento', v:2, project:P, images:imgs});
+}
+
+/* ============ Menú ============ */
+function updateHeader(){ $('#pname').textContent=P.name||'Levantamiento'; $('#paddr').textContent=[P.address,P.owner].filter(Boolean).join(' · ')||'Toca para datos, proyectos y exportar'; document.title=(P.name||'Levantamiento')+' — Croquis'; }
+function openMenu(){
+  const list=db.projects.map(p=>{ normalize(p); const c=countFields(p);
+    return `<div class="it ${p.id===P.id?'cur':''}"><div><b>${esc(p.name)}</b><small>${esc(p.address||'')} · ${esc(p.date)} · ${c.m}/${c.n} medidos · ${p.photos.length} fotos</small></div>
+      ${p.id===P.id?'':`<button data-open="${p.id}">Abrir</button>`}<button class="danger" data-del="${p.id}">✕</button></div>`; }).join('');
+  const photos=P.photos.map(f=>`<div class="it"><div><b>${esc(f.name)} ${esc(f.caption||'')}</b><small>${f.arrows.length} cotas · ${f.notes.length} notas${f.x==null?' · sin ubicar en plano':''}</small></div><button data-ph="${f.id}">Abrir</button></div>`).join('') || '<p style="color:var(--muted)">Aún no hay fotos. Usa la herramienta «Foto» y toca en el plano.</p>';
+  const s=db.settings;
+  openSheet(`<h2>Levantamiento actual</h2>
+    <div class="f">Nombre<input id="mName" value="${esc(P.name)}"></div>
+    <div class="grid2"><div class="f">Dirección<input id="mAddr" value="${esc(P.address)}" placeholder="Ej: Sucre 1858, Tocopilla"></div>
+    <div class="f">Propietario<input id="mOwner" value="${esc(P.owner)}"></div></div>
+    <h3>Exportar</h3>
+    <div class="grid2"><button class="pri" id="xDXF">Plano DXF (CAD)</button><button class="pri" id="xPNG">Imagen PNG</button>
+    <button id="xCSV">Tabla de medidas (CSV)</button><button id="xJSON">Respaldo completo</button></div>
+    <h3>Fotos</h3>
+    <div class="plist">${photos}</div>
+    <button id="mPhoto">+ Foto sin ubicar en el plano</button>
+    <h3>Proyectos</h3>
+    <div class="plist">${list}</div>
+    <div class="grid2"><button id="mNew">+ Nuevo levantamiento</button><button id="mImp">Importar respaldo</button></div>
+    <h3>Ajustes</h3>
+    <div class="grid2"><div class="f">Espesor muro (m)<input id="sExt" type="number" step="0.01" inputmode="decimal" value="${s.tExt}"></div>
+    <div class="f">Espesor tabique (m)<input id="sTab" type="number" step="0.01" inputmode="decimal" value="${s.tTab}"></div></div>
+    <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
+    <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
+    <h3>Cómo se usa</h3>
+    <p>1. Dibuja los <b>muros perimetrales</b> y luego los <b>tabiques</b>, igual que en la libreta.</p>
+    <p>2. Con <b>Vano</b> elige Puerta, Ventana o Vano vacío y toca el muro. El láser llena primero el <b>ancho</b> y luego la <b>distancia a la esquina</b> marcada con el punto azul.</p>
+    <p>3. Conecta la huincha con <b>Láser</b>: elige un elemento y mide; la cota se asigna sola.</p>
+    <p>4. Con <b>Foto</b> toca en el plano desde dónde fotografías; sobre la foto dibuja flechas de cota y notas.</p>
+    <p>5. Exporta: DXF por capas en metros, PNG, CSV para Excel y fotos anotadas en JPG.</p>
+    <p>Todo queda en este teléfono. Haz un <b>respaldo completo</b> (incluye fotos) de vez en cuando.</p>
+    <div class="actions"><button class="pri" id="mClose">Listo</button></div>`);
+  $('#mName').onchange=e=>{ P.name=e.target.value.trim()||'Levantamiento'; save(); updateHeader(); };
+  $('#mAddr').onchange=e=>{ P.address=e.target.value.trim(); save(); updateHeader(); };
+  $('#mOwner').onchange=e=>{ P.owner=e.target.value.trim(); save(); updateHeader(); };
+  $('#sExt').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tExt=v; save(); } };
+  $('#sTab').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tTab=v; save(); } };
+  $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); };
+  $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
+  $('#mClose').onclick=closeSheet;
+  $('#xDXF').onclick=()=>{ if(!P.walls.length&&!P.dims.length) return toast('Aún no hay nada dibujado'); shareOrDownload(new Blob([buildDXF()],{type:'application/dxf'}), safeName()+'.dxf'); };
+  $('#xPNG').onclick=async()=>{ const b=await buildPNG(); if(!b) return toast('Aún no hay nada dibujado'); shareOrDownload(b, safeName()+'.png'); };
+  $('#xCSV').onclick=()=>shareOrDownload(new Blob([buildCSV()],{type:'text/csv'}), safeName()+'_medidas.csv');
+  $('#xJSON').onclick=async()=>{ toast('Preparando respaldo…'); shareOrDownload(new Blob([await buildBackup()],{type:'application/json'}), safeName()+'_respaldo.json'); };
+  $('#mPhoto').onclick=()=>askPhoto(null);
+  $('#mNew').onclick=async()=>{ const n=await askText('Nuevo levantamiento','', 'Ej: Regularización Cienfuegos 1498'); if(n) newProject(n); };
+  $('#mImp').onclick=()=>$('#fileIn').click();
+  $$('[data-ph]').forEach(b=>b.onclick=()=>{ closeSheet(); openPhoto(b.dataset.ph); });
+  $$('[data-open]').forEach(b=>b.onclick=()=>{ openProject(b.dataset.open); closeSheet(); });
+  $$('[data-del]').forEach(b=>b.onclick=async()=>{
+    const p=db.projects.find(x=>x.id===b.dataset.del); if(!p) return;
+    const ok=await ask('Eliminar levantamiento', `Se borrará «${p.name}» y sus fotos de este teléfono. No se puede deshacer.`, 'Eliminar', true);
+    if(!ok){ openMenu(); return; }
+    for(const ph of (p.photos||[])){ try{ await idb.del(ph.id); }catch(e){} }
+    db.projects=db.projects.filter(x=>x.id!==p.id);
+    if(p.id===P.id){ if(db.projects.length) openProject(db.projects[0].id); else newProject('Levantamiento'); }
+    save(); openMenu();
+  });
+}
+$('#menuBtn').onclick=openMenu; $('#ptitle').onclick=openMenu;
+$('#fileIn').onchange=async e=>{
+  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+  try{
+    const d=JSON.parse(await f.text()); const p=normalize(d.project||d); if(!Array.isArray(p.walls)) throw 0;
+    p.id='p'+Date.now(); const imgs=d.images||{};
+    for(const ph of p.photos){
+      const nid='ph'+Date.now()+Math.floor(Math.random()*100000);
+      if(imgs[ph.id]){ const blob=await (await fetch(imgs[ph.id])).blob(); await idb.put(nid, blob); }
+      ph.id=nid;
+    }
+    db.projects.unshift(p); openProject(p.id); closeSheet(); toast('Respaldo importado ✔');
+  }catch(err){ toast('Ese archivo no es un respaldo válido'); }
+};
+
+/* ============ Inicio ============ */
+load();
+window.addEventListener('resize', resize);
+resize();
+if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
+setOpKind('door'); setTool('ext');
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, select, setTool, openPhoto, idb, get view(){return view}};
+</script>
+</body>
+</html>
