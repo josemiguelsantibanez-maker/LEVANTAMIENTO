@@ -1037,13 +1037,137 @@ function buildCSV(){
   const n=v=>v==null?'':String(v.toFixed(2)).replace('.',',');
   const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
   for(const {e,kind} of measurable()){
-    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+(e.ref==='b'?'extremo final':'extremo inicial')+')':''):'', '', n(e.len), n(e.off), n(e.h), g?n(g.sw):'']); }
+    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'', '', n(e.len), n(e.off), n(e.h), g?n(g.sw):'']); }
     else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), '', '', n(len(e))]);
   }
   for(const l of P.labels) rows.push(['', 'Recinto', '', '', '', '', '', l.text]);
   for(const ph of P.photos) for(const a of ph.arrows) rows.push([ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '']);
   return '﻿'+rows.map(r=>r.map(c=>/[;"\n]/.test(c)?'"'+String(c).replace(/"/g,'""')+'"':c).join(';')).join('\r\n');
 }
+/* ============ Informe PDF ============ */
+const PDF_LIBS=['https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js','https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js'];
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('sin conexión')); document.head.appendChild(s); }); }
+async function ensurePdf(){
+  if(!(window.jspdf && window.jspdf.jsPDF)) await loadScript(PDF_LIBS[0]);
+  if(!window.jspdf.jsPDF.API.autoTable) await loadScript(PDF_LIBS[1]);
+  return window.jspdf.jsPDF;
+}
+function refLabel(o){
+  // nombre del muro que llega a la esquina desde donde se midió la distancia
+  const w=wallOf(o); if(!w) return ''; const rp=o.ref==='b'?w.b:w.a;
+  const n=P.walls.find(x=>x!==w && [x.a,x.b].some(q=>Math.abs(q.x-rp.x)<1e-6 && Math.abs(q.y-rp.y)<1e-6));
+  return n ? 'esquina con '+n.name : (o.ref==='b'?'extremo final':'extremo inicial');
+}
+function planImage(boxW, boxH){
+  const b=bounds(); if(!b) return null;
+  const pxmm=10, margin=14;
+  const bw=Math.max(b.x1-b.x0,0.5), bh=Math.max(b.y1-b.y0,0.5);
+  const SC=[20,25,50,75,100,125,150,200,250,300,400,500,750,1000,1500,2000];
+  let den=SC.find(d=>bw*1000/d+2*margin<=boxW && bh*1000/d+2*margin<=boxH)||null;
+  const mmPerM = den ? 1000/den : Math.min((boxW-2*margin)/bw, (boxH-2*margin)/bh);
+  const s=mmPerM*pxmm, cw=Math.round(boxW*pxmm), ch=Math.round(boxH*pxmm);
+  const c=document.createElement('canvas'); c.width=cw; c.height=ch; const x=c.getContext('2d');
+  x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
+  renderPlan(x, {s, ox:cw/2-(b.x0+bw/2)*s, oy:ch/2-(b.y0+bh/2)*s}, {k:pxmm*0.21, names:true, bg:'#fff'});
+  return {data:c.toDataURL('image/png'), den, mmPerM};
+}
+async function photoImage(ph){
+  const blob=await idb.get(ph.id); if(!blob) return null;
+  const url=URL.createObjectURL(blob); const img=await loadImage(url);
+  const c=document.createElement('canvas'); c.width=ph.w; c.height=ph.h; const x=c.getContext('2d');
+  renderPhoto(x, {s:1,ox:0,oy:0}, ph, img, {k:Math.max(1, ph.w/700)});
+  URL.revokeObjectURL(url); return c.toDataURL('image/jpeg',0.85);
+}
+function fmtDate(d){ if(!d) return '—'; const [y,m,dd]=d.split('-'); return dd&&m&&y ? `${dd}-${m}-${y}` : d; }
+async function buildReport(){
+  const jsPDF=await ensurePdf();
+  const doc=new jsPDF({unit:'mm', format:'letter', orientation:'portrait'});
+  const PW=215.9, PH=279.4, M=15, CW=PW-2*M, ink=[31,42,55], grey=[107,114,128];
+  const c=countFields();
+  // ---- Página 1: datos + planta ----
+  doc.setFillColor(...ink); doc.rect(0,0,PW,24,'F');
+  doc.setTextColor(255); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.text('INFORME DE LEVANTAMIENTO', M, 11);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Croquis de terreno con medición láser', M, 17.5);
+  doc.text('Emitido: '+fmtDate(new Date().toISOString().slice(0,10)), PW-M, 11, {align:'right'});
+  doc.autoTable({startY:29, margin:{left:M,right:M}, theme:'plain', styles:{fontSize:10, cellPadding:1.4, textColor:ink},
+    columnStyles:{0:{fontStyle:'bold', cellWidth:48, textColor:grey}},
+    body:[['Proyecto',P.name||'—'],['Dirección',P.address||'—'],['Propietario',P.owner||'—'],['Fecha de levantamiento',fmtDate(P.date)],
+      ['Levantado por',db.settings.author||'—'],['Avance',`${c.m} de ${c.n} medidas registradas · ${P.photos.length} foto(s)`]]});
+  let y=doc.lastAutoTable.finalY+5;
+  const iy=y+9, ih=PH-iy-22; const pl=planImage(CW, ih);
+  doc.setDrawColor(...ink); doc.setLineWidth(0.4); doc.line(M,y,PW-M,y);
+  doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('PLANTA DE LEVANTAMIENTO', M, y+5.5);
+  if(pl){
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(pl.den ? `Escala 1:${pl.den}` : 'Sin escala', PW-M, y+5.5, {align:'right'});
+    doc.addImage(pl.data,'PNG',M,iy,CW,ih,undefined,'FAST');
+    doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(M,iy,CW,ih);
+    // escala gráfica
+    const by=iy+ih+4; const Ls=[1,2,5,10,20,50,100]; let L=1; for(const l of Ls) if(l*pl.mmPerM<=50) L=l;
+    const seg=L*pl.mmPerM/4; doc.setDrawColor(...ink); doc.setLineWidth(0.2);
+    for(let i=0;i<4;i++){ doc.setFillColor(...(i%2?[255,255,255]:ink)); doc.rect(M+i*seg, by, seg, 1.6, 'FD'); }
+    doc.setFontSize(7.5); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'});
+    doc.setTextColor(...grey); doc.setFontSize(8);
+    doc.text('Croquis: el trazo es aproximado y valen las cotas. Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-4*seg-8});
+  } else { doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text('Sin elementos dibujados.', M, y+14); }
+  // ---- Tabla de medidas ----
+  doc.addPage();
+  doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('TABLA DE MEDIDAS', M, 24);
+  const v=x=>x==null?'':fmt(x);
+  const rows=measurable().map(({e,kind})=>{
+    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):''), '', e.len==null?'sin medir':fmt(e.len), v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
+    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?'diagonal / control':'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), '', ''];
+  });
+  doc.autoTable({startY:28, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid',
+    head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Dist. a esquina','Alto']],
+    body:rows.length?rows:[['—','','Sin elementos','','','','']],
+    styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255, fontStyle:'bold'},
+    columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'right'},6:{halign:'right'}},
+    didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
+  y=doc.lastAutoTable.finalY+8;
+  if(P.labels.length){
+    if(y>PH-40){ doc.addPage(); y=26; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Recintos', M, y);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5);
+    const t=doc.splitTextToSize(P.labels.map(l=>l.text).join(' · '), CW); doc.text(t, M, y+5.5); y+=8+t.length*4.5;
+  }
+  const pc=[]; for(const ph of P.photos) for(const a of ph.arrows) pc.push([ph.name, ph.caption||'', a.name, a.len==null?'sin medir':fmt(a.len)]);
+  if(pc.length){
+    if(y>PH-50){ doc.addPage(); y=26; }
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Cotas en fotografías', M, y);
+    doc.autoTable({startY:y+3, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid', head:[['Foto','Descripción','Cota','Medida']], body:pc,
+      styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255},
+      columnStyles:{3:{halign:'right',fontStyle:'bold'}},
+      didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
+  }
+  // ---- Fotografías: 2 por página ----
+  const slotTop=[22, 22+(PH-22-16)/2], slotH=(PH-22-16)/2-4;
+  let i=0;
+  for(const ph of P.photos){
+    const data=await photoImage(ph); if(!data) continue;
+    if(i%2===0){ doc.addPage(); doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12); }
+    const top=slotTop[i%2];
+    doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+    doc.text(`${ph.name}${ph.caption?' · '+ph.caption:''}`, M, top+4);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...grey);
+    doc.text(`${ph.arrows.length} cota(s) · ${ph.notes.length} nota(s)${ph.x!=null?' · ubicada en planta':''}`, PW-M, top+4, {align:'right'});
+    const aw=CW, ah=slotH-8; const r=Math.min(aw/ph.w, ah/ph.h); const w=ph.w*r, h=ph.h*r;
+    doc.addImage(data,'JPEG', M+(aw-w)/2, top+7, w, h, undefined, 'FAST');
+    i++;
+  }
+  // ---- Encabezados y pies ----
+  const N=doc.getNumberOfPages();
+  for(let p=1;p<=N;p++){
+    doc.setPage(p); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...grey);
+    if(p>1){ doc.text(`${P.name||'Levantamiento'}${P.address?' · '+P.address:''}`, M, 11); doc.text('Informe de levantamiento', PW-M, 11, {align:'right'});
+      doc.setDrawColor(214,211,204); doc.setLineWidth(0.3); doc.line(M,13,PW-M,13); }
+    doc.line(M,PH-11,PW-M,PH-11);
+    doc.text(db.settings.author?('Levantado por '+db.settings.author):'', M, PH-7);
+    doc.text(`Página ${p} de ${N}`, PW-M, PH-7, {align:'right'});
+  }
+  return doc.output('blob');
+}
+
 function blobToDataURL(b){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(b); }); }
 async function buildBackup(){
   const imgs={}; for(const ph of P.photos){ try{ const b=await idb.get(ph.id); if(b) imgs[ph.id]=await blobToDataURL(b); }catch(e){} }
@@ -1062,7 +1186,9 @@ function openMenu(){
     <div class="f">Nombre<input id="mName" value="${esc(P.name)}"></div>
     <div class="grid2"><div class="f">Dirección<input id="mAddr" value="${esc(P.address)}" placeholder="Ej: Sucre 1858, Tocopilla"></div>
     <div class="f">Propietario<input id="mOwner" value="${esc(P.owner)}"></div></div>
+    <div class="f">Levantado por (aparece en el informe)<input id="mAuthor" value="${esc(db.settings.author||'')}" placeholder="Ej: Arq. José Miguel Santibáñez"></div>
     <h3>Exportar</h3>
+    <button class="big pri" id="xPDF">📄 Informe PDF (Carta)</button>
     <div class="grid2"><button class="pri" id="xDXF">Plano DXF (CAD)</button><button class="pri" id="xPNG">Imagen PNG</button>
     <button id="xCSV">Tabla de medidas (CSV)</button><button id="xJSON">Respaldo completo</button></div>
     <h3>Fotos</h3>
@@ -1081,11 +1207,18 @@ function openMenu(){
     <p>2. Con <b>Vano</b> elige Puerta, Ventana o Vano vacío y toca el muro. El láser llena primero el <b>ancho</b> y luego la <b>distancia a la esquina</b> marcada con el punto azul.</p>
     <p>3. Conecta la huincha con <b>Láser</b>: elige un elemento y mide; la cota se asigna sola.</p>
     <p>4. Con <b>Foto</b> toca en el plano desde dónde fotografías; sobre la foto dibuja flechas de cota y notas.</p>
-    <p>5. Exporta: DXF por capas en metros, PNG, CSV para Excel y fotos anotadas en JPG.</p>
+    <p>5. Exporta el <b>Informe PDF</b> (datos, planta a escala, tabla de medidas y fotos), o DXF por capas, PNG, CSV y fotos en JPG.</p>
     <p>Todo queda en este teléfono. Haz un <b>respaldo completo</b> (incluye fotos) de vez en cuando.</p>
     <div class="actions"><button class="pri" id="mClose">Listo</button></div>`);
   $('#mName').onchange=e=>{ P.name=e.target.value.trim()||'Levantamiento'; save(); updateHeader(); };
   $('#mAddr').onchange=e=>{ P.address=e.target.value.trim(); save(); updateHeader(); };
+  $('#mAuthor').onchange=e=>{ db.settings.author=e.target.value.trim(); save(); };
+  $('#xPDF').onclick=async()=>{
+    if(!P.walls.length && !P.photos.length) return toast('Aún no hay nada para el informe');
+    toast('Generando informe…', 6000);
+    try{ const b=await buildReport(); shareOrDownload(b, safeName()+'_informe.pdf'); }
+    catch(err){ toast(String(err&&err.message).includes('conexión') ? 'Para generar el PDF necesitas internet (se descarga el generador).' : 'No se pudo generar el informe: '+(err&&err.message||err), 5000); }
+  };
   $('#mOwner').onchange=e=>{ P.owner=e.target.value.trim(); save(); updateHeader(); };
   $('#sExt').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tExt=v; save(); } };
   $('#sTab').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tTab=v; save(); } };
@@ -1132,7 +1265,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext');
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>
