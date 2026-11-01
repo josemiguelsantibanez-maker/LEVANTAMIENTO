@@ -150,7 +150,7 @@ button.ghost{background:transparent}
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
 const STORE = 'levantamientos_v1';
-const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, interior:true, square:true};
+const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, faceDef:'int', square:true};
 const OPDEF = {door:0.80, win:1.20, gap:0.90};
 const OPNAME = {door:'Puerta', win:'Ventana', gap:'Vano vacío'};
 const OPPRE = {door:'P', win:'V', gap:'VN'};
@@ -172,7 +172,7 @@ let bt = {dev:null, ch:null, state:'off', lastRaw:'', lastT:0, lastV:null};
 function load(){
   try{
     const r = localStorage.getItem(STORE);
-    if(r){ const d = JSON.parse(r); db.projects = d.projects||[]; db.current = d.current; db.settings = {...DEF_SET, ...(d.settings||{})}; }
+    if(r){ const d = JSON.parse(r); db.projects = d.projects||[]; db.current = d.current; db.settings = {...DEF_SET, ...(d.settings||{})}; if(db.settings.interior===false && !(d.settings||{}).faceDef) db.settings.faceDef='eje'; }
   }catch(e){}
 }
 let saveT = null;
@@ -286,19 +286,22 @@ function wallsAt(pt, p, except){
   }
   return out;
 }
+const FACES={int:'Interior', ext:'Exterior', eje:'Eje'};
+const FACESIGN={int:1, ext:-1, eje:0};
+function faceOf(e){ return e.face || db.settings.faceDef || 'int'; }
+const faceTag = e => faceOf(e)==='int' ? '' : ' '+faceOf(e);
 function faceAt(w, pt, p){
-  if(db.settings.interior===false) return 0;
   const L=len(w); if(L<1e-6) return 0; const ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L; let f=0;
   for(const x of wallsAt(pt,p,w)){ const Lx=len(x); const d=Math.abs(ux*(x.b.x-x.a.x)/Lx+uy*(x.b.y-x.a.y)/Lx); if(d<0.9) f=Math.max(f,x.t/2); }
   return f;
 }
-function axisTarget(w, p){ return w.len==null ? len(w) : w.len + faceAt(w,w.a,p) + faceAt(w,w.b,p); }
+function axisTarget(w, p){ return w.len==null ? len(w) : w.len + FACESIGN[faceOf(w)]*(faceAt(w,w.a,p) + faceAt(w,w.b,p)); }
 function opGeom(o, p){
   const w=wallOf(o,p); if(!w) return null; const L=len(w); if(L<1e-6) return null;
   const k = w.len ? L/axisTarget(w,p) : 1;               // trazo por metro real
   const sw = Math.min((o.len||OPDEF[o.kind])*k, L*0.98);
   // la distancia se mide desde la cara interior del muro que llega a esa esquina
-  const rp = o.ref==='b' ? w.b : w.a; const face=faceAt(w, rp, p)*k;
+  const rp = o.ref==='b' ? w.b : w.a; const face=FACESIGN[faceOf(o)]*faceAt(w, rp, p)*k;
   let c = (o.off!=null) ? (o.ref==='b' ? L-(face+o.off*k+sw/2) : face+o.off*k+sw/2) : o.t*L;
   c = Math.max(sw/2, Math.min(L-sw/2, c));
   const ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L;
@@ -391,7 +394,7 @@ function renderPlan(c, v, o){
       if(best[1]-best[0]>0.05) tm=(best[0]+best[1])/2/Lw;
     }
     const mx=a.x+(b.x-a.x)*tm, my=a.y+(b.y-a.y)*tm; const measured = w.len!=null;
-    haloText(c, measured?fmt(w.len):'?', mx-nx*off, my-ny*off, ua, `700 ${13*k}px system-ui`, measured?'#15803d':'#d97706');
+    haloText(c, measured?fmt(w.len)+faceTag(w):'?', mx-nx*off, my-ny*off, ua, `700 ${13*k}px system-ui`, measured?'#15803d':'#d97706');
     if(o.names && v.s>22) haloText(c, w.name||'', mx-nx*(off+14*k), my-ny*(off+14*k), ua, `${10*k}px system-ui`, '#9ca3af');
   }
   // cotas libres
@@ -404,7 +407,7 @@ function renderPlan(c, v, o){
     for(const q of [a,b]){ c.moveTo(q.x-nx*tk-Math.cos(ang)*tk*.7, q.y-ny*tk-Math.sin(ang)*tk*.7); c.lineTo(q.x+nx*tk+Math.cos(ang)*tk*.7, q.y+ny*tk+Math.sin(ang)*tk*.7); }
     c.stroke();
     const n2x=-Math.sin(ua), n2y=Math.cos(ua);
-    haloText(c, d.len!=null?fmt(d.len):'?', (a.x+b.x)/2-n2x*9*k, (a.y+b.y)/2-n2y*9*k, ua, `700 ${12*k}px system-ui`, d.len!=null?'#7c3aed':'#d97706');
+    haloText(c, d.len!=null?fmt(d.len)+faceTag(d):'?', (a.x+b.x)/2-n2x*9*k, (a.y+b.y)/2-n2y*9*k, ua, `700 ${12*k}px system-ui`, d.len!=null?'#7c3aed':'#d97706');
   }
   // recintos
   for(const l of p.labels){ const q=S(l); haloText(c, l.text, q.x, q.y, 0, `600 ${13*k}px system-ui`, isSel('label',l.id)?'#0f6fde':'#1f2a37'); }
@@ -556,6 +559,7 @@ function renderProps(){
         <label>Dist.● <input data-f="off" class="${f==='off'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.off??''}"></label>
         <label>Alto <input data-f="h" class="${f==='h'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.h??''}"></label>
       </div>
+      <div class="row"><label>Dist. medida desde la cara</label>${`<span class="seg" title="Cara del muro desde donde se tomó la medida">${['int','ext','eje'].map(f=>`<button data-face="${f}" class="${faceOf(e)===f?'on':''}">${FACES[f]}</button>`).join('')}</span>`}</div>
       <div class="row">${lm}
         <button id="pRef" title="Cambia la esquina desde donde se mide la distancia (punto azul)">● Otra esquina</button>
         <button id="pNext">Siguiente ›</button>
@@ -574,19 +578,20 @@ function renderProps(){
   } else {
     const isWall = sel.kind==='wall';
     const title = isWall ? (e.type==='ext'?'Muro ':'Tabique ')+e.name : 'Cota '+e.name;
+    const FS=`<span class="seg" title="Cara del muro desde donde se tomó la medida">${['int','ext','eje'].map(f=>`<button data-face="${f}" class="${faceOf(e)===f?'on':''}">${FACES[f]}</button>`).join('')}</span>`;
+    const aligned=P.aligns.filter(al=>al.a===e.id||al.b===e.id).map(al=>{ const o=P.walls.find(x=>x.id===(al.a===e.id?al.b:al.a)); return o?`<button data-unal="${al.a}-${al.b}" title="Quitar alineación">≡ ${esc(o.name)} ✕</button>`:''; }).join('');
     box.innerHTML=`<div class="row"><span class="name">${esc(title)}</span>
         <span class="val ${e.len!=null?'okv':'miss'}">${e.len!=null?fmt(e.len)+' m':'sin medir'}</span><button class="ghost" id="pClose">✕</button></div>
-      <div class="row">
-        <label>Medida <input id="pLen" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.len??''}" placeholder="m"></label>
-        ${isWall?`<span class="seg"><button data-ty="ext" class="${e.type==='ext'?'on':''}">Muro</button><button data-ty="tab" class="${e.type==='tab'?'on':''}">Tabique</button></span>
-        <label>e <input id="pT" type="number" inputmode="decimal" step="0.01" value="${e.t}" style="width:62px"></label>`:''}
-      </div>
-      <div class="row">${lm}
-        <button id="pNext">Siguiente ›</button>
-        ${e.len!=null?'<button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo</button>':''}
+      <div class="row"><input id="pLen" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.len??''}" placeholder="Medida m" style="width:96px">${FS}</div>
+      <div class="row">${lm}<button id="pNext">Siguiente ›</button><button id="pMore">${moreOpen?'▴ Menos':'⋯ Más'}</button>
         <button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
-      ${isWall?`<div class="row"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>
-        ${P.aligns.filter(al=>al.a===e.id||al.b===e.id).map(al=>{ const o=P.walls.find(x=>x.id===(al.a===e.id?al.b:al.a)); return o?`<button data-unal="${al.a}-${al.b}" title="Quitar alineación">≡ ${esc(o.name)} ✕</button>`:''; }).join('')}</div>`:''}${btLine}`;
+      <div style="display:${moreOpen?'block':'none'}">
+        ${isWall?`<div class="row" style="margin-top:8px"><span class="seg"><button data-ty="ext" class="${e.type==='ext'?'on':''}">Muro</button><button data-ty="tab" class="${e.type==='tab'?'on':''}">Tabique</button></span>
+          <label>espesor <input id="pT" type="number" inputmode="decimal" step="0.01" value="${e.t}" style="width:62px"></label></div>
+        <div class="row" style="margin-top:8px"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>${aligned}</div>`:''}
+        ${e.len!=null?'<div class="row" style="margin-top:8px"><button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo a la medida</button></div>':''}
+      </div>${btLine}`;
+    $('#pMore').onclick=()=>{ moreOpen=!moreOpen; renderProps(); ensureVisible(); draw(); };
     $('#pLen').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.len = v==null?null:r3(v); save(); renderProps(); draw(); };
     if(isWall){
       box.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ const ty=b.dataset.ty; if(ty===e.type) return; pushUndo(); e.type=ty; e.t= ty==='ext'?db.settings.tExt:db.settings.tTab; e.name=nextName(ty==='ext'?'M':'T'); save(); renderProps(); draw(); });
@@ -600,6 +605,7 @@ function renderProps(){
       box.querySelectorAll('[data-unal]').forEach(b=>b.onclick=()=>{ const [a,c]=b.dataset.unal.split('-').map(Number); pushUndo(); P.aligns=P.aligns.filter(al=>!(al.a===a&&al.b===c)); save(); renderProps(); });
     }
   }
+  box.querySelectorAll('[data-face]').forEach(b=>b.onclick=ev=>{ ev.preventDefault(); const f=b.dataset.face; if(f===faceOf(e)) return; pushUndo(); e.face=f; save(); renderProps(); draw(); });
   $('#pClose').onclick=()=>select(null);
   if($('#pNext')) $('#pNext').onclick=()=>{ const n=nextUnmeasured(e.id); if(n) select(n); else toast('Todo está medido ✔'); };
   if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
@@ -609,6 +615,7 @@ function renderProps(){
     sel=null; save(); renderProps(); draw();
   };
 }
+let moreOpen=false;
 let pending=null;   // acción que espera un toque: {type:'split'|'align', id}
 function startPending(type, w){
   pending={type, id:w.id}; setTool('sel');
@@ -670,14 +677,14 @@ function solveLin(M, v){
   }
   const x=new Float64Array(n); for(let r=n-1;r>=0;r--){ let sum=A[r][n]; for(let k=r+1;k<n;k++) sum-=A[r][k]*x[k]; x[r]=sum/A[r][r]; } return x;
 }
-function cornerPt(pt, toward, p){
-  // punto interior (cara) de una esquina o encuentro, hacia el otro extremo de la cota
-  if(db.settings.interior===false) return {x:pt.x, y:pt.y};
+function cornerPt(pt, toward, p, mode){
+  // punto de la cara (interior: hacia el otro extremo; exterior: hacia afuera) de una esquina o encuentro
+  const sgn=FACESIGN[mode||'int']; if(!sgn) return {x:pt.x, y:pt.y};
   const dirs=[]; let ox=0, oy=0;
   for(const w of wallsAt(pt,p)){
     const L=len(w); const nx=-(w.b.y-w.a.y)/L, ny=(w.b.x-w.a.x)/L;
     if(dirs.some(d=>Math.abs(d.nx*nx+d.ny*ny)>0.9)) continue; dirs.push({nx,ny});
-    const sg=Math.sign((toward.x-pt.x)*nx+(toward.y-pt.y)*ny)||1; ox+=nx*sg*w.t/2; oy+=ny*sg*w.t/2;
+    const sg=(Math.sign((toward.x-pt.x)*nx+(toward.y-pt.y)*ny)||1)*sgn; ox+=nx*sg*w.t/2; oy+=ny*sg*w.t/2;
   }
   return {x:pt.x+ox, y:pt.y+oy};
 }
@@ -687,7 +694,7 @@ function isLocator(d, p){
   return (p||P).walls.some(w=>{ const Lw=len(w); return Lw>1e-6 && Math.abs(ux*(w.b.x-w.a.x)/Lw+uy*(w.b.y-w.a.y)/Lw)>0.996; });
 }
 function diagChecks(p){
-  p=p||P; return p.dims.filter(d=>d.len!=null && !isLocator(d,p)).map(d=>{ const a=cornerPt(d.a,d.b,p), b=cornerPt(d.b,d.a,p); const got=Math.hypot(b.x-a.x,b.y-a.y); return {d, got, delta:got-d.len}; });
+  p=p||P; return p.dims.filter(d=>d.len!=null && !isLocator(d,p)).map(d=>{ const a=cornerPt(d.a,d.b,p,faceOf(d)), b=cornerPt(d.b,d.a,p,faceOf(d)); const got=Math.hypot(b.x-a.x,b.y-a.y); return {d, got, delta:got-d.len}; });
 }
 function squareDirs(walls){
   // orientación dominante (módulo 90°) ponderada por largo; endereza ángulos casi rectos
@@ -741,7 +748,7 @@ function rectify(){
     if(d.len==null) continue; const L=len(d); if(L<1e-6) continue; const ux=(d.b.x-d.a.x)/L, uy=(d.b.y-d.a.y)/L;
     if(!isLocator(d)) continue;
     const i=idx.get(d.a), j=idx.get(d.b); if(i===j) continue;
-    const ca=cornerPt(d.a,d.b), cb=cornerPt(d.b,d.a); const corr=((cb.x-d.b.x)-(ca.x-d.a.x))*ux+((cb.y-d.b.y)-(ca.y-d.a.y))*uy;
+    const ca=cornerPt(d.a,d.b,P,faceOf(d)), cb=cornerPt(d.b,d.a,P,faceOf(d)); const corr=((cb.x-d.b.x)-(ca.x-d.a.x))*ux+((cb.y-d.b.y)-(ca.y-d.a.y))*uy;
     row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], d.len-corr, 1000);
   }
   // muros en el mismo eje estructural
@@ -768,7 +775,7 @@ function showRectify(r){
     +`<p style="color:var(--muted);font-size:13px">Hasta ±3 cm es normal. Más que eso indica un recinto fuera de escuadra o una medida a revisar.</p>` : '<p style="color:var(--muted)">Tip: mide una o dos diagonales con «Cota» para controlar la escuadra.</p>';
   const bad=r.bad.length ? `<h3>Medidas que no calzan</h3>`+r.bad.map(b=>`<p>⚠️ <b>${esc(b.w.name)}</b>: medida ${fmt(b.w.len)}, el dibujo cerró con ${fmt(b.got)} (${deltaTxt(b.got-b.w.len)}). Revisa esa medida o el trazo.</p>`).join('') : '';
   openSheet(`<h2>📐 Planta rectificada</h2>
-    <p>Se usaron <b>${r.measured}</b> medidas${db.settings.interior!==false?' (cara a cara, descontando el espesor de los muros)':''}. La planta ahora está a escala real.</p>
+    <p>Se usaron <b>${r.measured}</b> medidas, cada una según su cara (interior, exterior o eje). La planta ahora está a escala real.</p>
     ${r.fixed?`<p>📐 ${r.fixed} muro(s) casi a escuadra se enderezaron.</p>`:''}
     ${r.aligns?`<p>≡ ${r.aligns} alineación(es) de eje respetadas.</p>`:''}
     ${r.unmeasured?`<p>⚠️ ${r.unmeasured} muro(s) sin medir conservaron el largo del croquis.</p>`:''}
@@ -1226,7 +1233,7 @@ function buildDXF(p){
     line('EJES',w.a,w.b);
     const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
     const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
-    text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len):'?')+'  ('+w.name+')', ang*180/Math.PI);
+    text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len)+faceTag(w):'?')+'  ('+w.name+')', ang*180/Math.PI);
   }
   for(const o of p.openings){
     const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
@@ -1244,7 +1251,7 @@ function buildDXF(p){
   for(const d of p.dims){
     line('DIAGONALES',d.a,d.b);
     const ang=upDeg(d.a,d.b); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(d.a.x+d.b.x)/2, myD=-(d.a.y+d.b.y)/2;
-    text(d.len!=null?'DIAGONALES':'SIN_MEDIR', mx+tnx*0.1, -(myD+tny*0.1), 0.1, (d.len!=null?fmt(d.len):'?')+'  ('+d.name+')', ang*180/Math.PI);
+    text(d.len!=null?'DIAGONALES':'SIN_MEDIR', mx+tnx*0.1, -(myD+tny*0.1), 0.1, (d.len!=null?fmt(d.len)+faceTag(d):'?')+'  ('+d.name+')', ang*180/Math.PI);
   }
   for(const l of p.labels) text('RECINTOS', l.x, l.y, 0.2, l.text, 0);
   for(const ph of p.photos) if(ph.x!=null) text('FOTOS', ph.x, ph.y, 0.15, ph.name+(ph.caption?' '+ph.caption:''), 0);
@@ -1275,10 +1282,10 @@ function buildPNG(){
 }
 function buildCSV(){
   const n=v=>v==null?'':String(v.toFixed(2)).replace('.',',');
-  const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
+  const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Cara medida','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
   for(const {e,kind} of measurable()){
-    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'', '', n(e.len), n(e.off), n(e.h), g?n(g.sw):'']); }
-    else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), '', '', n(len(e))]);
+    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'', '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
+    else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
   }
   for(const l of P.labels) rows.push(['', 'Recinto', '', '', '', '', '', l.text]);
   for(const ph of P.photos) for(const a of ph.arrows) rows.push([ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '']);
@@ -1348,7 +1355,7 @@ async function buildReport(){
     for(let i=0;i<4;i++){ doc.setFillColor(...(i%2?[255,255,255]:ink)); doc.rect(M+i*seg, by, seg, 1.6, 'FD'); }
     doc.setFontSize(7.5); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'}); }
     doc.setTextColor(...grey); doc.setFontSize(8);
-    doc.text((ok?'Planta rectificada con las medidas láser (cara a cara). ':'')+'Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-60});
+    doc.text((ok?'Planta rectificada con las medidas láser. ':'')+'Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-60});
   } else { doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text('Sin elementos dibujados.', M, y+14); }
   // ---- Tabla de medidas ----
   doc.addPage();
@@ -1356,14 +1363,14 @@ async function buildReport(){
   const v=x=>x==null?'':fmt(x);
   const dc={}; if(P.rectified && P.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
   const rows=measurable().map(({e,kind})=>{
-    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):''), '', e.len==null?'sin medir':fmt(e.len), v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
-    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), '', ''];
+    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
+    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
   });
   doc.autoTable({startY:28, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid',
-    head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Dist. a esquina','Alto']],
+    head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
     body:rows.length?rows:[['—','','Sin elementos','','','','']],
     styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255, fontStyle:'bold'},
-    columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'right'},6:{halign:'right'}},
+    columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'center'},6:{halign:'right'},7:{halign:'right'}},
     didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
   y=doc.lastAutoTable.finalY+8;
   if(P.labels.length){
@@ -1447,12 +1454,14 @@ function openMenu(){
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
     <label class="tg">Rectificar: enderezar ángulos casi rectos (±6°)<input type="checkbox" id="sSq" ${s.square!==false?'checked':''}></label>
-    <label class="tg">Medidas interiores, cara a cara<input type="checkbox" id="sInt" ${s.interior!==false?'checked':''}></label>
+    <label class="tg">Cara por defecto al medir muros
+      <select id="sFace" style="font:inherit;padding:6px;border-radius:8px;border:1px solid var(--line)">${['int','ext','eje'].map(f=>`<option value="${f}" ${(s.faceDef||'int')===f?'selected':''}>${FACES[f]}</option>`).join('')}</select></label>
     <h3>Cómo se usa</h3>
     <p>1. Dibuja los <b>muros perimetrales</b> y luego los <b>tabiques</b>, igual que en la libreta.</p>
     <p>2. Con <b>Vano</b> elige Puerta, Ventana o Vano vacío y toca el muro. El láser llena primero el <b>ancho</b> y luego la <b>distancia a la esquina</b> marcada con el punto azul.</p>
     <p>3. Conecta la huincha con <b>Láser</b>: elige un elemento y mide; la cota se asigna sola.</p>
     <p>Para ubicar un tabique, dibuja una <b>Cota</b> recta desde la cara del muro hasta el tabique y mídela. Las diagonales sirven de control.</p>
+    <p>Cada medida indica su <b>cara</b>: Interior (cara a cara dentro del recinto), Exterior (por fuera) o Eje. La planta aparece con "ext" o "eje" junto a la cota cuando no es interior.</p>
     <p>Para corregir un muro, elígelo y usa <b>✥ Corregir</b> (moverlo o estirarlo), <b>✂ Dividir</b> o <b>≡ Mismo eje que…</b> para muros que van alineados aunque estén lejos.</p>
     <p>El botón <b>⟂ Escuadra</b> del plano activa o desactiva el enganche a 0°/45°/90° para dibujar muros en ángulo.</p>
     <p>Al terminar, usa <b>📐 Rectificar planta</b>: el dibujo pasa a escala real con tus medidas.</p>
@@ -1479,7 +1488,7 @@ function openMenu(){
   $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); orthoLabel(); };
   $('#sSq').onchange=e=>{ db.settings.square=e.target.checked; P.dirty=true; save(); };
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
-  $('#sInt').onchange=e=>{ db.settings.interior=e.target.checked; P.dirty=true; save(); draw(); };
+  $('#sFace').onchange=e=>{ db.settings.faceDef=e.target.value; P.dirty=true; save(); draw(); };
   $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
   $('#mRenum').onclick=()=>{ renumber(); openMenu(); };
   $('#mClose').onclick=closeSheet;
