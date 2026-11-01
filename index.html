@@ -96,7 +96,7 @@ button.ghost{background:transparent}
     <div class="pill" id="count">0/0</div>
     <button class="fab" id="fitBtn">⤢ Encuadrar</button>
     <button class="fab" id="orthoBtn" style="top:72px"></button>
-    <div id="vanoBar" class="seg"><button data-op="door">Puerta</button><button data-op="win">Ventana</button><button data-op="gap">Vano vacío</button></div>
+    <div id="vanoBar" class="seg"><button data-op="door">Puerta</button><button data-op="win">Ventana</button><button data-op="fwin">Ventanal</button><button data-op="gap">Vano</button></div>
     <div class="props" id="props"></div>
   </div>
   <nav class="tools">
@@ -150,10 +150,22 @@ button.ghost{background:transparent}
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
 const STORE = 'levantamientos_v1';
-const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, faceDef:'int', square:true};
-const OPDEF = {door:0.80, win:1.20, gap:0.90};
-const OPNAME = {door:'Puerta', win:'Ventana', gap:'Vano vacío'};
-const OPPRE = {door:'P', win:'V', gap:'VN'};
+const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, faceDef:'int', square:true, sillDef:0.90, hDef:2.40};
+const OPDEF = {door:0.80, win:1.20, fwin:1.80, gap:0.90};
+const OPNAME = {door:'Puerta', win:'Ventana', fwin:'Ventanal', gap:'Vano vacío'};
+const OPPRE = {door:'P', win:'V', fwin:'VT', gap:'VN'};
+const OPH = {door:2.10, win:1.20, fwin:2.10, gap:2.10};      // altura de vano por defecto
+const isWin = k => k==='win' || k==='fwin';
+function sillOf(o){ return o.kind==='fwin' ? 0 : o.kind==='win' ? (o.sill ?? db.settings.sillDef ?? 0.90) : 0; }
+function opHeight(o){ return o.h ?? OPH[o.kind]; }
+function wallHeight(w, p){
+  // altura del muro: la propia, si no la del recinto más cercano con altura, si no la del proyecto
+  p=p||P; if(w.h!=null) return {v:w.h, src:'propia'};
+  let best=null, bd=Infinity;
+  for(const l of p.labels) if(l.h!=null){ const d=segDist(l.x,l.y,w.a.x,w.a.y,w.b.x,w.b.y).d; if(d<bd){ bd=d; best=l; } }
+  if(best) return {v:best.h, src:best.text};
+  return {v:db.settings.hDef ?? 2.40, src:'por defecto'};
+}
 const $ = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
 const cv = $('#cv'), ctx = cv.getContext('2d');
@@ -353,7 +365,7 @@ function renderPlan(c, v, o){
     c.strokeStyle=col; c.lineWidth=1.5*k; c.beginPath();
     for(const q of [p1,p2]){ c.moveTo(q.x-nx*T/2,q.y-ny*T/2); c.lineTo(q.x+nx*T/2,q.y+ny*T/2); }
     c.stroke();
-    if(op.kind==='win'){
+    if(isWin(op.kind)){
       c.lineWidth=1.2*k; c.beginPath();
       for(const f of [-0.5,0,0.5]){ c.moveTo(p1.x+nx*T*f,p1.y+ny*T*f); c.lineTo(p2.x+nx*T*f,p2.y+ny*T*f); }
       c.stroke();
@@ -538,7 +550,7 @@ function ensureVisible(){
   // si el elemento elegido queda tapado por el panel, sube la vista
   const box=$('#props'); if(box.style.display==='none') return; const c=selCenter(); if(!c) return;
   const top=H-box.offsetHeight-8; if(c.y>top-40){ view.oy-=c.y-(top-70); }
-  if(c.y<60){ view.oy+=60-c.y; }
+  if(c.y<110){ view.oy+=110-c.y; }
 }
 function select(s){ if(s && s.kind==='photo'){ openPhoto(s.id); return; } sel=s; renderProps(); ensureVisible(); draw(); }
 const FIELDS = {wall:['len'], dim:['len'], open:['len','off'], label:['h']};
@@ -572,12 +584,14 @@ function renderProps(){
     const w=wallOf(e); const f=sel.field||'len';
     box.innerHTML=`<div class="row"><span class="name">${OPNAME[e.kind]} ${esc(e.name)}</span><span class="sub">en ${w?esc(w.name):'?'}</span>
         <span class="val ${e.len!=null?'okv':'miss'}">${e.len!=null?fmt(e.len)+' m':'sin medir'}</span><button class="ghost" id="pClose">✕</button></div>
-      <div class="row"><span class="seg">${['door','win','gap'].map(k=>`<button data-ok="${k}" class="${e.kind===k?'on':''}">${k==='gap'?'Vano':OPNAME[k]}</button>`).join('')}</span>
+      <div class="row"><span class="seg">${['door','win','fwin','gap'].map(k=>`<button data-ok="${k}" class="${e.kind===k?'on':''}">${k==='gap'?'Vano':OPNAME[k]}</button>`).join('')}</span>
         ${e.kind==='door'?'<button id="pFlip">↻ Girar</button>':''}</div>
       <div class="row">
         <label>Ancho <input data-f="len" class="${f==='len'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.len??''}"></label>
         <label>Dist.● <input data-f="off" class="${f==='off'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.off??''}"></label>
-        <label>Alto <input data-f="h" class="${f==='h'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.h??''}"></label>
+        <label>Alto <input data-f="h" class="${f==='h'?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.h??''}" placeholder="${fmt(OPH[e.kind])}"></label>
+        ${e.kind==='win'?`<label>Antepecho <input id="pSill" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e.sill??''}" placeholder="${fmt(db.settings.sillDef??0.9)}"></label>`:''}
+        ${e.kind==='fwin'?'<span class="sub">desde el piso</span>':''}
       </div>
       <div class="row"><label>Dist. medida desde la cara</label>${`<span class="seg" title="Cara del muro desde donde se tomó la medida">${['int','ext','eje'].map(f=>`<button data-face="${f}" class="${faceOf(e)===f?'on':''}">${FACES[f]}</button>`).join('')}</span>`}</div>
       <div class="row">${lm}
@@ -594,6 +608,7 @@ function renderProps(){
       e.t=g.c/g.L; e.ref = e.ref==='b'?'a':'b'; e.off=null;
       if(had){ const g2=opGeom(e); const d = e.ref==='b' ? g2.L-(g2.c+g2.sw/2)-g2.face : (g2.c-g2.sw/2)-g2.face; e.off=r3(Math.max(0,d/g2.k)); }
       save(); renderProps(); draw(); };
+    if($('#pSill')) $('#pSill').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.sill=v==null?null:r3(v); save(); };
     if($('#pFlip')) $('#pFlip').onclick=()=>{ pushUndo(); e.flip=((e.flip||0)+1)%4; save(); draw(); };
   } else {
     const isWall = sel.kind==='wall';
@@ -608,9 +623,12 @@ function renderProps(){
       <div style="display:${moreOpen?'block':'none'}">
         ${isWall?`<div class="row" style="margin-top:8px"><span class="seg"><button data-ty="ext" class="${e.type==='ext'?'on':''}">Muro</button><button data-ty="tab" class="${e.type==='tab'?'on':''}">Tabique</button></span>
           <label>espesor <input id="pT" type="number" inputmode="decimal" step="0.01" value="${e.t}" style="width:62px"></label></div>
+        <div class="row" style="margin-top:8px"><label>Altura <input id="pWH" type="number" inputmode="decimal" step="0.01" value="${e.h??''}" placeholder="${fmt(wallHeight(e).v)}" style="width:72px"></label>
+          <span class="sub">${e.h!=null?'propia de este muro':'tomada de: '+esc(wallHeight(e).src)}</span></div>
         <div class="row" style="margin-top:8px"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>${aligned}</div>`:''}
         ${e.len!=null?'<div class="row" style="margin-top:8px"><button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo a la medida</button></div>':''}
       </div>${btLine}`;
+    if($('#pWH')) $('#pWH').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.h=v==null?null:r3(v); save(); renderProps(); };
     $('#pMore').onclick=()=>{ moreOpen=!moreOpen; renderProps(); ensureVisible(); draw(); };
     $('#pLen').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.len = v==null?null:r3(v); save(); renderProps(); draw(); };
     if(isWall){
@@ -1269,7 +1287,7 @@ function buildDXF(p){
   }
   for(const o of p.openings){
     const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
-    if(o.kind==='win'){ for(const sd of [-1/6,1/6]) line('VANOS',{x:g.p1.x+g.nx*g.w.t*sd,y:g.p1.y+g.ny*g.w.t*sd},{x:g.p2.x+g.nx*g.w.t*sd,y:g.p2.y+g.ny*g.w.t*sd}); }
+    if(isWin(o.kind)){ for(const sd of [-1/6,1/6]) line('VANOS',{x:g.p1.x+g.nx*g.w.t*sd,y:g.p1.y+g.ny*g.w.t*sd},{x:g.p2.x+g.nx*g.w.t*sd,y:g.p2.y+g.ny*g.w.t*sd}); }
     if(o.kind==='door'){
       const fl=o.flip||0; const hinge=(fl&1)?g.p2:g.p1, other=(fl&1)?g.p1:g.p2; const sd=(fl&2)?-1:1; const r=g.sw;
       const le={x:hinge.x+g.nx*sd*r, y:hinge.y+g.ny*sd*r}; line('VANOS',hinge,le);
@@ -1320,7 +1338,7 @@ function buildCSV(){
   const n=v=>v==null?'':String(v.toFixed(2)).replace('.',',');
   const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Cara medida','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
   for(const {e,kind} of measurable()){
-    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'', '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
+    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], (w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'')+(isWin(e.kind)?' antepecho '+fmt(sillOf(e)):''), '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
     else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
   }
   for(const l of P.labels) rows.push(['', 'Recinto', l.text, '', '', '', '', n(l.h), '']);
@@ -1399,7 +1417,7 @@ async function buildReport(){
   const v=x=>x==null?'':fmt(x);
   const dc={}; if(P.rectified && P.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
   const rows=measurable().map(({e,kind})=>{
-    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
+    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):'')+(isWin(e.kind)?`, antepecho ${fmt(sillOf(e))}`:''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
     return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
   });
   doc.autoTable({startY:28, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid',
@@ -1456,6 +1474,23 @@ async function buildReport(){
   return doc.output('blob');
 }
 
+/* ============ Exportar para Revit (lo lee el script de Dynamo) ============ */
+function buildRevitJSON(){
+  const b=bounds(); const X0=b?b.x0:0, Y0=b?b.y1:0;
+  const pt=q=>[r3(q.x-X0), r3(Y0-q.y)];                       // metros, Y hacia arriba como en Revit
+  const walls=P.walls.filter(w=>len(w)>1e-6);
+  return JSON.stringify({
+    app:'levantamiento', version:1, units:'m',
+    project:{name:P.name, address:P.address, owner:P.owner, date:P.date, rectified:!!(P.rectified && P.dirty===false)},
+    walls: walls.map(w=>{ const H=wallHeight(w); return {id:w.id, name:w.name, kind:w.type==='ext'?'muro':'tabique', thickness:w.t,
+      start:pt(w.a), end:pt(w.b), height:r3(H.v), height_from:H.src, measured:w.len, face:faceOf(w)}; }),
+    openings: P.openings.map(o=>{ const g=opGeom(o); if(!g) return null; const k=g.k||1;
+      return {id:o.id, name:o.name, kind:{door:'door', win:'window', fwin:'floor_window', gap:'opening'}[o.kind], wall:o.wall,
+        center:r3(g.c), width:r3(o.len ?? OPDEF[o.kind]), height:r3(opHeight(o)), sill:r3(sillOf(o)), flip:o.flip||0, measured:o.len!=null}; }).filter(Boolean),
+    rooms: P.labels.map(l=>({name:l.text, at:pt(l), height:l.h}))
+  }, null, 1);
+}
+
 function blobToDataURL(b){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(b); }); }
 async function buildBackup(){
   const imgs={}; for(const ph of P.photos){ try{ const b=await idb.get(ph.id); if(b) imgs[ph.id]=await blobToDataURL(b); }catch(e){} }
@@ -1482,6 +1517,7 @@ function openMenu(){
     <button class="big pri" id="xPDF">📄 Informe PDF (Carta)</button>
     <div class="grid2"><button class="pri" id="xDXF">Plano DXF (CAD)</button><button class="pri" id="xPNG">Imagen PNG</button>
     <button id="xCSV">Tabla de medidas (CSV)</button><button id="xJSON">Respaldo completo</button></div>
+    <button class="big" id="xRVT" style="margin-top:8px">🏗 Para Revit (muros, vanos y alturas)</button>
     <h3>Fotos</h3>
     <div class="plist">${photos}</div>
     <button id="mPhoto">+ Foto sin ubicar en el plano</button>
@@ -1494,6 +1530,8 @@ function openMenu(){
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
     <label class="tg">Rectificar: enderezar ángulos casi rectos (±6°)<input type="checkbox" id="sSq" ${s.square!==false?'checked':''}></label>
+    <div class="grid2"><div class="f">Antepecho ventanas (m)<input id="sSill" type="number" step="0.01" inputmode="decimal" value="${s.sillDef??0.9}"></div>
+    <div class="f">Altura muros sin recinto (m)<input id="sHDef" type="number" step="0.01" inputmode="decimal" value="${s.hDef??2.4}"></div></div>
     <label class="tg">Cara por defecto al medir muros
       <select id="sFace" style="font:inherit;padding:6px;border-radius:8px;border:1px solid var(--line)">${['int','ext','eje'].map(f=>`<option value="${f}" ${(s.faceDef||'int')===f?'selected':''}>${FACES[f]}</option>`).join('')}</select></label>
     <h3>Cómo se usa</h3>
@@ -1529,6 +1567,16 @@ function openMenu(){
   $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); orthoLabel(); };
   $('#sSq').onchange=e=>{ db.settings.square=e.target.checked; P.dirty=true; save(); };
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
+  $('#xRVT').onclick=async()=>{
+    if(!P.walls.length) return toast('Aún no hay muros');
+    if(!(P.rectified && P.dirty===false)){
+      const go=await ask('Planta sin rectificar', 'Para Revit conviene la planta a escala real. ¿Rectificar con las medidas antes de exportar?', 'Rectificar');
+      if(go) rectify();
+    }
+    shareOrDownload(new Blob([buildRevitJSON()],{type:'application/json'}), safeName()+'_revit.json');
+  };
+  $('#sSill').onchange=e=>{ const v=num(e.target.value); if(v!=null){ db.settings.sillDef=v; save(); } };
+  $('#sHDef').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.hDef=v; save(); } };
   $('#sFace').onchange=e=>{ db.settings.faceDef=e.target.value; P.dirty=true; save(); draw(); };
   $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
   $('#mRenum').onclick=()=>{ renumber(); openMenu(); };
@@ -1573,7 +1621,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext'); orthoLabel();
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, rectify, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>

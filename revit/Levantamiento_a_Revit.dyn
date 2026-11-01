@@ -1,0 +1,273 @@
+{
+  "Uuid": "ff2c7947-4893-4dcd-b7cf-69aa35d2ee16",
+  "IsCustomNode": false,
+  "Description": "Crea muros, puertas, ventanas, vanos y habitaciones desde la app de levantamiento",
+  "Name": "Levantamiento a Revit",
+  "ElementResolver": {
+    "ResolutionMap": {}
+  },
+  "Inputs": [],
+  "Outputs": [],
+  "Nodes": [
+    {
+      "ConcreteType": "CoreNodeModels.Input.Filename, CoreNodeModels",
+      "HintPath": "",
+      "InputValue": "",
+      "NodeType": "ExtensionNode",
+      "Id": "5df524d8acfb412a8133ce89df5d32bf",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "5731b36356f44bda9f1e4876a55c964a",
+          "Name": "",
+          "Description": "Ruta del archivo",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Permite seleccionar un archivo y devuelve su ruta"
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.StringInput, CoreNodeModels",
+      "NodeType": "StringInputNode",
+      "InputValue": "",
+      "Id": "ff772bc083574c55a92477d847ca512e",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "b47f7ecb592c493abf2527330b534941",
+          "Name": "",
+          "Description": "String",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a string."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.StringInput, CoreNodeModels",
+      "NodeType": "StringInputNode",
+      "InputValue": "",
+      "Id": "31ae03761d7f4b6c86639f8c7c9721a9",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "bf3a63b03b96486791fafc7a788a3a4b",
+          "Name": "",
+          "Description": "String",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a string."
+    },
+    {
+      "ConcreteType": "CoreNodeModels.Input.StringInput, CoreNodeModels",
+      "NodeType": "StringInputNode",
+      "InputValue": "",
+      "Id": "1a74267d1c8d40f78ff4735f2e0b5111",
+      "Inputs": [],
+      "Outputs": [
+        {
+          "Id": "7e1abdca63fe43b1904da3e70906ef07",
+          "Name": "",
+          "Description": "String",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Creates a string."
+    },
+    {
+      "ConcreteType": "PythonNodeModels.PythonNode, PythonNodeModels",
+      "Code": "# -*- coding: utf-8 -*-\n\"\"\"\nLevantamiento -> Revit  (Dynamo 3.x, motor CPython3 — Revit 2025)\n\nLee el archivo \"..._revit.json\" que exporta la app de levantamiento y crea, en el nivel más bajo\ndel modelo (o en el nivel indicado en IN[1]):\n  - Tipos de muro \"Levantamiento NN cm\" (una capa, según espesor) y muros nativos por su eje, con su altura.\n  - Puertas, ventanas y ventanales: duplica un tipo de la familia cargada con el ancho y alto medidos.\n  - Vanos vacíos: aberturas rectangulares en el muro.\n  - Habitaciones con el nombre y la altura de cada recinto.\n\nEntradas:\n  IN[0]  ruta del archivo .json (nodo File Path)\n  IN[1]  (opcional) nombre del nivel. Vacío = nivel más bajo\n  IN[2]  (opcional) texto que contenga el nombre de la familia de puertas a usar\n  IN[3]  (opcional) texto que contenga el nombre de la familia de ventanas a usar\nEjecutar UNA sola vez en modo Manual: cada ejecución vuelve a crear los elementos.\n\"\"\"\nimport clr, json\nclr.AddReference('RevitAPI')\nfrom Autodesk.Revit.DB import *\nfrom Autodesk.Revit.DB.Structure import StructuralType\nclr.AddReference('RevitServices')\nfrom RevitServices.Persistence import DocumentManager\nfrom RevitServices.Transactions import TransactionManager\n\ndoc = DocumentManager.Instance.CurrentDBDocument\n\ndef _in(i, default=None):\n    try:\n        v = IN[i]\n        return v if v not in (None, '') else default\n    except Exception:\n        return default\n\npath = _in(0)\nlevel_name = _in(1)\ndoor_hint = (_in(2) or '').lower()\nwin_hint = (_in(3) or '').lower()\n\nFT = 1.0 / 0.3048\ndef ft(m): return float(m) * FT\n\nreport = []\n\ndef type_name(e):\n    p = e.get_Parameter(BuiltInParameter.SYMBOL_NAME_PARAM)\n    return p.AsString() if p else ''\n\ndef family_name(sym):\n    try:\n        return sym.Family.Name\n    except Exception:\n        p = sym.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)\n        return p.AsString() if p else ''\n\nwith open(path, encoding='utf-8') as f:\n    data = json.load(f)\n\n# ---------- nivel ----------\nlevels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(), key=lambda l: l.Elevation)\nlevel = levels[0]\nif level_name:\n    for l in levels:\n        if l.Name == level_name:\n            level = l\nz0 = level.Elevation\n\n# ---------- tipos de muro ----------\nbasic_types = [t for t in FilteredElementCollector(doc).OfClass(WallType).ToElements() if t.Kind == WallKind.Basic]\nwall_types = {}\ndef wall_type(thk):\n    cm = int(round(thk * 100))\n    if cm in wall_types:\n        return wall_types[cm]\n    name = 'Levantamiento %d cm' % cm\n    for t in basic_types:\n        if type_name(t) == name:\n            wall_types[cm] = t\n            return t\n    nt = doc.GetElement(basic_types[0].Duplicate(name).Id)\n    cs = CompoundStructure.CreateSingleLayerCompoundStructure(MaterialFunctionAssignment.Structure, ft(thk), ElementId.InvalidElementId)\n    nt.SetCompoundStructure(cs)\n    wall_types[cm] = nt\n    report.append('Tipo de muro creado: ' + name)\n    return nt\n\n# ---------- tipos de puerta / ventana ----------\ndef symbols(cat, hint):\n    syms = list(FilteredElementCollector(doc).OfClass(FamilySymbol).OfCategory(cat).ToElements())\n    if hint:\n        pref = [s for s in syms if hint in family_name(s).lower()]\n        if pref:\n            return pref\n    return syms\n\ndef set_len(elem, names, bips, value):\n    for b in bips:\n        bip = getattr(BuiltInParameter, b, None)\n        if bip is None:\n            continue\n        p = elem.get_Parameter(bip)\n        if p and not p.IsReadOnly:\n            p.Set(value)\n            return True\n    for n in names:\n        p = elem.LookupParameter(n)\n        if p and not p.IsReadOnly and p.StorageType == StorageType.Double:\n            p.Set(value)\n            return True\n    return False\n\nsym_cache = {}\ndef symbol_for(kind, w, h):\n    cat = BuiltInCategory.OST_Doors if kind == 'door' else BuiltInCategory.OST_Windows\n    hint = door_hint if kind == 'door' else win_hint\n    base_list = symbols(cat, hint)\n    if not base_list:\n        return None\n    base = base_list[0]\n    fam = family_name(base)\n    name = '%s %dx%d' % ('Lev', int(round(w * 100)), int(round(h * 100)))\n    key = (fam, name)\n    if key in sym_cache:\n        return sym_cache[key]\n    for s in base_list:\n        if family_name(s) == fam and type_name(s) == name:\n            sym_cache[key] = s\n            return s\n    ns = doc.GetElement(base.Duplicate(name).Id)\n    okw = set_len(ns, ['Width', 'Anchura', 'Ancho'], ['DOOR_WIDTH', 'WINDOW_WIDTH', 'FAMILY_WIDTH_PARAM'], ft(w))\n    okh = set_len(ns, ['Height', 'Altura', 'Alto'], ['DOOR_HEIGHT', 'WINDOW_HEIGHT', 'FAMILY_HEIGHT_PARAM'], ft(h))\n    if not (okw and okh):\n        report.append('Aviso: no se pudo fijar ancho/alto en la familia \"%s\"; revisa el tipo %s' % (fam, name))\n    if not ns.IsActive:\n        ns.Activate()\n    sym_cache[key] = ns\n    return ns\n\ndef P3(x, y, z=0.0):\n    return XYZ(ft(x), ft(y), z0 + ft(z))\n\n# ---------- crear ----------\nTransactionManager.Instance.EnsureInTransaction(doc)\n\nwalls = {}\nfor w in data.get('walls', []):\n    try:\n        a = P3(w['start'][0], w['start'][1]); b = P3(w['end'][0], w['end'][1])\n        if a.DistanceTo(b) < 0.01:\n            continue\n        wt = wall_type(float(w['thickness']))\n        wall = Wall.Create(doc, Line.CreateBound(a, b), wt.Id, level.Id, ft(w['height']), 0.0, False, False)\n        c = wall.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)\n        if c:\n            c.Set('%s (levantamiento)' % w['name'])\n        walls[w['id']] = (wall, a, b)\n    except Exception as ex:\n        report.append('Error en muro %s: %s' % (w.get('name'), ex))\ndoc.Regenerate()\nreport.append('Muros creados: %d' % len(walls))\n\nn_inst = 0; n_open = 0\nfor o in data.get('openings', []):\n    try:\n        if o['wall'] not in walls:\n            continue\n        wall, a, b = walls[o['wall']]\n        d = b.Subtract(a).Normalize()\n        c = a.Add(d.Multiply(ft(o['center'])))\n        width = float(o['width']); height = float(o['height']); sill = float(o.get('sill', 0) or 0)\n        if o['kind'] == 'opening':\n            p1 = c.Subtract(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill)))\n            p2 = c.Add(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill + height)))\n            doc.Create.NewOpening(wall, p1, p2)\n            n_open += 1\n            continue\n        kind = 'door' if o['kind'] == 'door' else 'window'\n        sym = symbol_for(kind, width, height)\n        if sym is None:\n            report.append('No hay familias de %s cargadas: se omitió %s' % ('puertas' if kind == 'door' else 'ventanas', o['name']))\n            continue\n        doc.Regenerate()\n        inst = doc.Create.NewFamilyInstance(XYZ(c.X, c.Y, z0), sym, wall, level, StructuralType.NonStructural)\n        if kind == 'window':\n            p = inst.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)\n            if p and not p.IsReadOnly:\n                p.Set(ft(sill))\n        else:\n            fl = int(o.get('flip', 0))\n            try:\n                if fl & 1: inst.flipHand()\n                if fl & 2: inst.flipFacing()\n            except Exception:\n                pass\n        m = inst.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)\n        if m:\n            m.Set(o['name'])\n        n_inst += 1\n    except Exception as ex:\n        report.append('Error en vano %s: %s' % (o.get('name'), ex))\nreport.append('Puertas y ventanas: %d · Vanos vacíos: %d' % (n_inst, n_open))\n\ndoc.Regenerate()\nn_rooms = 0\nfor r in data.get('rooms', []):\n    try:\n        room = doc.Create.NewRoom(level, UV(ft(r['at'][0]), ft(r['at'][1])))\n        p = room.get_Parameter(BuiltInParameter.ROOM_NAME)\n        if p:\n            p.Set(r['name'])\n        if r.get('height'):\n            up = room.get_Parameter(BuiltInParameter.ROOM_UPPER_OFFSET)\n            if up:\n                up.Set(ft(r['height']))\n        n_rooms += 1\n    except Exception as ex:\n        report.append('Habitación \"%s\" no creada: %s' % (r.get('name'), ex))\nreport.append('Habitaciones: %d' % n_rooms)\n\nTransactionManager.Instance.TransactionTaskDone()\n\nif not data.get('project', {}).get('rectified'):\n    report.insert(0, 'Aviso: la planta no estaba rectificada; las medidas pueden no ser a escala.')\nOUT = report\n",
+      "Engine": "CPython3",
+      "EngineName": "CPython3",
+      "VariableInputPorts": true,
+      "Id": "aa561d462a4048c9864ab296f67b2b00",
+      "NodeType": "PythonScriptNode",
+      "Inputs": [
+        {
+          "Id": "3a328aee0b6542748fb67189133a5c16",
+          "Name": "IN[0]",
+          "Description": "Input #0",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "9d298a8417194a72a47e582bac9b6691",
+          "Name": "IN[1]",
+          "Description": "Input #1",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "48550e20aec24968a5306bfc5acd5c3e",
+          "Name": "IN[2]",
+          "Description": "Input #2",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        },
+        {
+          "Id": "59006b2080674b8dbe318c804d29bf69",
+          "Name": "IN[3]",
+          "Description": "Input #3",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Outputs": [
+        {
+          "Id": "782a3101afd340f58a2810f60f528551",
+          "Name": "OUT",
+          "Description": "Result of the python script",
+          "UsingDefaultValue": false,
+          "Level": 2,
+          "UseLevels": false,
+          "KeepListStructure": false
+        }
+      ],
+      "Replication": "Disabled",
+      "Description": "Runs an embedded Python script."
+    }
+  ],
+  "Connectors": [
+    {
+      "Start": "5731b36356f44bda9f1e4876a55c964a",
+      "End": "3a328aee0b6542748fb67189133a5c16",
+      "Id": "0bc682d464694e77961016281d7a0c44",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "b47f7ecb592c493abf2527330b534941",
+      "End": "9d298a8417194a72a47e582bac9b6691",
+      "Id": "8904856c49e7455984226fa92cf3a71e",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "bf3a63b03b96486791fafc7a788a3a4b",
+      "End": "48550e20aec24968a5306bfc5acd5c3e",
+      "Id": "154aa7c2fb184b8da43871246c8e40b4",
+      "IsHidden": "False"
+    },
+    {
+      "Start": "7e1abdca63fe43b1904da3e70906ef07",
+      "End": "59006b2080674b8dbe318c804d29bf69",
+      "Id": "1d5be32a55924fc7881f99e0241d5a11",
+      "IsHidden": "False"
+    }
+  ],
+  "Dependencies": [],
+  "NodeLibraryDependencies": [],
+  "EnableLegacyPolyCurveBehavior": null,
+  "Thumbnail": "",
+  "GraphDocumentationURL": null,
+  "ExtensionWorkspaceData": [],
+  "Author": "Jose Miguel Santibáñez",
+  "Linting": {
+    "activeLinter": "None",
+    "activeLinterId": "7b75fb44-43fd-4631-a878-29f4d5d8399a",
+    "warningCount": 0,
+    "errorCount": 0
+  },
+  "Bindings": [],
+  "View": {
+    "Dynamo": {
+      "ScaleFactor": 1.0,
+      "HasRunWithoutCrash": false,
+      "IsVisibleInDynamoLibrary": true,
+      "Version": "3.0.3.7597",
+      "RunType": "Manual",
+      "RunPeriod": "1000"
+    },
+    "Camera": {
+      "Name": "_Background Preview",
+      "EyeX": -17.0,
+      "EyeY": 24.0,
+      "EyeZ": 50.0,
+      "LookX": 12.0,
+      "LookY": -13.0,
+      "LookZ": -58.0,
+      "UpX": 0.0,
+      "UpY": 1.0,
+      "UpZ": 0.0
+    },
+    "ConnectorPins": [],
+    "NodeViews": [
+      {
+        "Id": "5df524d8acfb412a8133ce89df5d32bf",
+        "Name": "1) Archivo _revit.json del levantamiento",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 0,
+        "Y": 0
+      },
+      {
+        "Id": "ff772bc083574c55a92477d847ca512e",
+        "Name": "2) Nivel (vacío = el más bajo)",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 0,
+        "Y": 150
+      },
+      {
+        "Id": "31ae03761d7f4b6c86639f8c7c9721a9",
+        "Name": "3) Familia de puertas contiene… (opcional)",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 0,
+        "Y": 260
+      },
+      {
+        "Id": "1a74267d1c8d40f78ff4735f2e0b5111",
+        "Name": "4) Familia de ventanas contiene… (opcional)",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 0,
+        "Y": 370
+      },
+      {
+        "Id": "aa561d462a4048c9864ab296f67b2b00",
+        "Name": "Levantamiento a Revit",
+        "IsSetAsInput": false,
+        "IsSetAsOutput": false,
+        "Excluded": false,
+        "ShowGeometry": true,
+        "X": 520,
+        "Y": 120
+      }
+    ],
+    "Annotations": [],
+    "X": 0.0,
+    "Y": 0.0,
+    "Zoom": 1.0
+  }
+}
