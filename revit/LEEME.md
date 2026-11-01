@@ -5,7 +5,7 @@
 3. Gestionar → **Dynamo** → Abrir → `Levantamiento_a_Revit.dyn`.
 4. Deja Dynamo en modo **Manual**.
 5. En el nodo **1) Archivo** elige el `.json`. Los nodos 2–4 son opcionales:
-   - **Nivel**: nombre exacto del nivel (vacío = el más bajo).
+   - **Nivel ±0,00**: nivel de Revit que corresponde al ±0,00 del levantamiento (vacío = el más bajo). Cada nivel del levantamiento usa el nivel de Revit a su cota o crea uno nuevo con su vista de planta.
    - **Familia de puertas / ventanas contiene…**: parte del nombre de la familia que quieres usar.
 6. Presiona **Ejecutar una sola vez**. Cada ejecución vuelve a crear los elementos.
 

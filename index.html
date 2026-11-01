@@ -27,10 +27,10 @@ button.ghost{background:transparent}
 .last{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px;min-width:56px;text-align:right}
 .stage{position:relative;flex:1;overflow:hidden;touch-action:none}
 .stage canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block}
-.hint{position:absolute;left:10px;top:8px;right:120px;font-size:12px;color:var(--muted);pointer-events:none;line-height:1.35}
+.hint{position:absolute;left:10px;top:44px;right:120px;font-size:12px;color:var(--muted);pointer-events:none;line-height:1.35}
 .pill{position:absolute;right:10px;top:8px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600}
 .fab{position:absolute;right:10px;top:40px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:12px}
-#vanoBar{position:absolute;left:10px;top:52px;display:none}
+#vanoBar{position:absolute;left:10px;top:44px;display:none}
 .tools{display:flex;gap:2px;padding:6px 4px;background:#fff;border-top:1px solid var(--line);overflow-x:auto;padding-bottom:max(6px,env(safe-area-inset-bottom))}
 .tool{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 3px;font-size:10.5px;background:transparent;min-width:44px}
 .tool svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
@@ -94,6 +94,7 @@ button.ghost{background:transparent}
     <canvas id="cv"></canvas>
     <div class="hint" id="hint"></div>
     <div class="pill" id="count">0/0</div>
+    <button class="fab" id="lvBtn" style="left:10px;right:auto;top:8px;font-weight:600">▤ 1er nivel</button>
     <button class="fab" id="fitBtn">⤢ Encuadrar</button>
     <button class="fab" id="orthoBtn" style="top:72px"></button>
     <div id="vanoBar" class="seg"><button data-op="door">Puerta</button><button data-op="win">Ventana</button><button data-op="fwin">Ventanal</button><button data-op="gap">Vano</button></div>
@@ -150,7 +151,7 @@ button.ghost{background:transparent}
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
 const STORE = 'levantamientos_v1';
-const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, faceDef:'int', square:true, sillDef:0.90, hDef:2.40};
+const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, faceDef:'int', square:true, sillDef:0.90, hDef:2.40, slabDef:0.20, ghost:true};
 const OPDEF = {door:0.80, win:1.20, fwin:1.80, gap:0.90};
 const OPNAME = {door:'Puerta', win:'Ventana', fwin:'Ventanal', gap:'Vano vacío'};
 const OPPRE = {door:'P', win:'V', fwin:'VT', gap:'VN'};
@@ -190,20 +191,100 @@ function load(){
 }
 let saveT = null;
 function save(){ clearTimeout(saveT); saveT = setTimeout(saveNow, 250); }
-function saveNow(){ try{ localStorage.setItem(STORE, JSON.stringify(db)); }catch(e){ toast('No se pudo guardar en el teléfono'); } }
+function saveNow(){
+  try{
+    syncLevel(P);
+    // cada nivel guarda sus propios datos; los del nivel activo no se duplican
+    const out={...db, projects:db.projects.map(p=>{ if(!p.levels) return p; const q={...p}; for(const k of LV_KEYS) delete q[k]; return q; })};
+    localStorage.setItem(STORE, JSON.stringify(out));
+  }catch(e){ toast('No se pudo guardar en el teléfono'); }
+}
+/* ============ Niveles ============ */
+const LV_KEYS=['walls','dims','labels','openings','photos','aligns','cnt','fcnt','dirty','rectified'];
+const LV_NAMES=['1er','2do','3er','4to','5to','6to','7mo','8vo'];
+function levelName(i){ return (LV_NAMES[i]||(i+1)+'°')+' nivel'; }
+function normLevel(L){ for(const k of ['walls','dims','labels','openings','photos','aligns']) L[k]=L[k]||[]; L.cnt=L.cnt||{}; L.fcnt=L.fcnt||0; return L; }
+function blankLevel(i){ return normLevel({id:'L'+Date.now()+Math.floor(Math.random()*1000), name:levelName(i), npt:null, slab:null, dirty:true, rectified:false}); }
+function loadLevel(p,i){ p.cur=i; const L=p.levels[i]; for(const k of LV_KEYS) p[k]=L[k]; }
+function syncLevel(p){ p=p||P; if(!p||!p.levels||p.walls===undefined) return; const L=p.levels[p.cur||0]; if(!L) return; for(const k of LV_KEYS) L[k]=p[k]; }   // solo si el nivel activo está cargado
 function normalize(p){
-  p.walls=p.walls||[]; p.dims=p.dims||[]; p.labels=p.labels||[]; p.openings=p.openings||[]; p.photos=p.photos||[]; p.log=p.log||[];
-  p.cnt=p.cnt||{}; p.fcnt=p.fcnt||0; p.aligns=p.aligns||[]; p.seq=p.seq||1; return p;
+  p.log=p.log||[]; p.seq=p.seq||1;
+  if(!p.levels){ const L={id:'L1', name:levelName(0), npt:0, slab:null}; for(const k of LV_KEYS) L[k]=p[k]; p.levels=[L]; p.cur=0; }
+  else if(p===P) syncLevel(p);
+  p.levels.forEach(normLevel); if(p.cur==null || p.cur>=p.levels.length) p.cur=0;
+  loadLevel(p,p.cur); return p;
+}
+function levelH(L){ const v=[...L.labels.filter(l=>l.h!=null).map(l=>l.h), ...L.walls.filter(w=>w.h!=null).map(w=>w.h)]; return v.length?Math.max(...v):(db.settings.hDef??2.40); }
+function slabOf(L){ return L.slab ?? db.settings.slabDef ?? 0.20; }
+function nptOf(i, p){ p=p||P; const L=p.levels[i]; if(L.npt!=null) return L.npt; if(i===0) return 0; const B=p.levels[i-1]; return nptOf(i-1,p)+levelH(B)+slabOf(B); }
+function fmtNPT(v){ v=Math.round((v||0)*1000)/1000; return Math.abs(v)<0.0005 ? '±0.00' : (v>0?'+':'−')+Math.abs(v).toFixed(2); }
+function withLevel(i, fn){
+  const prev=P.cur, us=undoStack, s0=sel; syncLevel(); loadLevel(P,i); undoStack=[]; sel=null;
+  try{ return fn(P.levels[i], i); } finally { syncLevel(); loadLevel(P,prev); undoStack=us; sel=s0; }
+}
+async function withLevelAsync(i, fn){
+  const prev=P.cur, us=undoStack, s0=sel; syncLevel(); loadLevel(P,i); undoStack=[]; sel=null;
+  try{ return await fn(P.levels[i], i); } finally { syncLevel(); loadLevel(P,prev); undoStack=us; sel=s0; }
+}
+function unionBounds(){ let b=null; P.levels.forEach((L,i)=>{ const x=bounds(L); if(!x) return; b = b ? {x0:Math.min(b.x0,x.x0), y0:Math.min(b.y0,x.y0), x1:Math.max(b.x1,x.x1), y1:Math.max(b.y1,x.y1)} : {...x}; }); return b; }
+function switchLevel(i){
+  if(i===P.cur) return; syncLevel(); loadLevel(P,i); sel=null; draft=null; undoStack=[]; pending=null;
+  save(); updateLevelPill(); renderProps(); draw(); toast(P.levels[i].name+' · piso '+fmtNPT(nptOf(i)));
+}
+function addLevel(copy){
+  syncLevel(); const i=P.levels.length, L=blankLevel(i);
+  if(copy){
+    const src=P.levels[P.cur], map={};
+    for(const w of src.walls.filter(w=>w.type==='ext')){ const nw=JSON.parse(JSON.stringify(w)); nw.id=P.seq++; map[w.id]=nw.id; delete nw.h; L.cnt.M=(L.cnt.M||0)+1; nw.name='M'+L.cnt.M; L.walls.push(nw); }
+    for(const w of L.walls) for(const q of [w.a,w.b]) if(q.on!=null){ if(map[q.on]!=null) q.on=map[q.on]; else delete q.on; }
+    L.aligns=src.aligns.filter(al=>map[al.a]!=null && map[al.b]!=null).map(al=>({a:map[al.a], b:map[al.b]}));
+    L.dirty=src.dirty; L.rectified=src.rectified;
+  }
+  P.levels.push(L); switchLevel(i);
+}
+async function deleteLevel(i){
+  if(P.levels.length<2) return toast('Debe quedar al menos un nivel');
+  const L=P.levels[i]; const ok=await ask('Eliminar nivel', `Se borrará «${L.name}» con sus muros, vanos y fotos.`, 'Eliminar', true); if(!ok) return openLevels();
+  syncLevel(); for(const ph of L.photos){ try{ await idb.del(ph.id); }catch(e){} }
+  P.levels.splice(i,1); const c = P.cur===i ? 0 : (P.cur>i ? P.cur-1 : P.cur); loadLevel(P,c);
+  sel=null; undoStack=[]; save(); updateLevelPill(); renderProps(); draw(); openLevels();
+}
+function updateLevelPill(){ const b=$('#lvBtn'); if(!b||!P) return; b.textContent='▤ '+P.levels[P.cur].name+' · '+fmtNPT(nptOf(P.cur)); }
+function openLevels(){
+  syncLevel();
+  const items=P.levels.map((L,i)=>`<div class="it ${i===P.cur?'cur':''}" style="flex-wrap:wrap">
+      <div style="flex:1 1 100%"><input data-lname="${i}" value="${esc(L.name)}" style="font:inherit;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;width:70%">
+        <small style="display:block">${L.walls.length} muros · altura ${fmt(levelH(L))} · cielo ${fmtNPT(nptOf(i)+levelH(L))}</small></div>
+      <label style="font-size:12px;color:var(--muted)">Piso (NPT) <input data-lnpt="${i}" type="number" step="0.01" inputmode="decimal" value="${L.npt??''}" placeholder="${(nptOf(i)).toFixed(2)}" style="width:76px;padding:6px;border:1px solid var(--line);border-radius:8px"></label>
+      <label style="font-size:12px;color:var(--muted)">Losa sobre muros <input data-lslab="${i}" type="number" step="0.01" inputmode="decimal" value="${L.slab??''}" placeholder="${slabOf(L).toFixed(2)}" style="width:66px;padding:6px;border:1px solid var(--line);border-radius:8px"></label>
+      ${i===P.cur?'<span class="sub" style="margin-left:auto">actual</span>':`<button data-lgo="${i}" style="margin-left:auto">Ir</button>`}
+      <button class="danger" data-ldel="${i}">✕</button></div>`).join('');
+  openSheet(`<h2>Niveles</h2>
+    <p style="color:var(--muted);font-size:13px">Los pisos se miden desde el <b>±0,00</b> del proyecto. Si dejas el piso vacío se calcula solo: piso del nivel inferior + altura de sus muros + losa.</p>
+    <div class="plist">${items}</div>
+    <div class="grid2"><button class="pri" id="lvAddCopy">+ Nivel copiando muros exteriores</button><button id="lvAdd">+ Nivel vacío</button></div>
+    <label class="tg">Ver el nivel inferior como guía<input type="checkbox" id="lvGhost" ${db.settings.ghost!==false?'checked':''}></label>
+    <div class="actions"><button class="pri" id="dOk">Listo</button></div>`);
+  $$('[data-lname]').forEach(x=>x.onchange=()=>{ P.levels[+x.dataset.lname].name=x.value.trim()||levelName(+x.dataset.lname); save(); updateLevelPill(); });
+  $$('[data-lnpt]').forEach(x=>x.onchange=()=>{ const v=num(x.value); P.levels[+x.dataset.lnpt].npt = v==null?null:r3(v); save(); updateLevelPill(); openLevels(); });
+  $$('[data-lslab]').forEach(x=>x.onchange=()=>{ const v=num(x.value); P.levels[+x.dataset.lslab].slab = v==null?null:r3(v); save(); updateLevelPill(); openLevels(); });
+  $$('[data-lgo]').forEach(x=>x.onclick=()=>{ closeSheet(); switchLevel(+x.dataset.lgo); });
+  $$('[data-ldel]').forEach(x=>x.onclick=()=>deleteLevel(+x.dataset.ldel));
+  $('#lvAddCopy').onclick=()=>{ closeSheet(); addLevel(true); };
+  $('#lvAdd').onclick=()=>{ closeSheet(); addLevel(false); };
+  $('#lvGhost').onchange=e=>{ db.settings.ghost=e.target.checked; save(); draw(); };
+  $('#dOk').onclick=closeSheet;
 }
 function blankProject(name){
   return normalize({id:'p'+Date.now()+Math.floor(Math.random()*1000), name:name||'Levantamiento', address:'', owner:'', date:new Date().toISOString().slice(0,10)});
 }
 function newProject(name){ const p = blankProject(name); db.projects.unshift(p); openProject(p.id); return p; }
 function openProject(id){
+  if(P) syncLevel(P);
   db.current = id; P = db.projects.find(p=>p.id===id);
   if(!P){ P = blankProject(); db.projects.unshift(P); db.current = P.id; }
   normalize(P); sel = null; draft = null; undoStack = [];
-  save(); updateHeader(); fitView(); renderProps(); draw();
+  save(); updateHeader(); updateLevelPill(); fitView(); renderProps(); draw();
 }
 
 /* IndexedDB para las fotos (no caben en el almacenamiento normal) */
@@ -279,7 +360,7 @@ function bounds(p){
 }
 function fitView(){
   if(!W){ const r=$('#stage').getBoundingClientRect(); W=r.width; H=r.height; }
-  const b = P && bounds();
+  const b = P && (bounds() || (P.levels && unionBounds()));
   if(!b){ view.s = 40; view.ox = W/2; view.oy = H/2; draw(); return; }
   const bw=Math.max(b.x1-b.x0,1), bh=Math.max(b.y1-b.y0,1);
   view.s = Math.max(5, Math.min(300, Math.min((W-80)/bw, (H-150)/bh)));
@@ -450,6 +531,7 @@ function drawAim(c, q, dir, k, preview){
   c.strokeStyle='#0f6fde'; c.fillStyle='#0f6fde'; c.lineWidth=2.2*k; c.beginPath(); c.moveTo(q.x,q.y); c.lineTo(ex,ey); c.stroke();
   c.beginPath(); c.moveTo(ex,ey); c.lineTo(ex-Math.cos(dir-0.45)*9*k, ey-Math.sin(dir-0.45)*9*k); c.lineTo(ex-Math.cos(dir+0.45)*9*k, ey-Math.sin(dir+0.45)*9*k); c.closePath(); c.fill();
 }
+function countAll(p){ p=p||P; syncLevel(p); let n=0,m=0,f=0; for(const L of p.levels){ const c=countFields(L); n+=c.n; m+=c.m; f+=L.photos.length; } return {n,m,f}; }
 function countFields(p){
   p=p||P; let n=0,m=0;
   for(const e of [...p.walls,...p.dims]){ n++; if(e.len!=null) m++; }
@@ -460,6 +542,8 @@ function draw(){
   if(!P || !W) return;
   ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
   drawGrid(ctx);
+  const G=ghostLevel(); if(G){ ctx.lineCap='square'; ctx.strokeStyle='rgba(15,111,222,.16)';
+    for(const w of G.walls){ const a=w2s(w.a), b=w2s(w.b); ctx.lineWidth=Math.max(2,w.t*view.s); ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); } }
   renderPlan(ctx, view, {sel, ends: tool!=='sel' && tool!=='vano' && tool!=='foto', names:true});
   if(draft){
     const a=w2s(draft.a), b=w2s(draft.b);
@@ -475,6 +559,7 @@ function draw(){
   const c=countFields(); $('#count').textContent = `Medidos ${c.m}/${c.n}`;
 }
 
+function ghostLevel(){ return (P && P.levels && P.cur>0 && db.settings.ghost!==false) ? P.levels[P.cur-1] : null; }
 /* ============ Enganches ============ */
 function endpoints(exclPts){ const r=[]; for(const w of P.walls) r.push(w.a,w.b); for(const d of P.dims) r.push(d.a,d.b); return exclPts? r.filter(p=>!exclPts.includes(p)) : r; }
 function rayHits(f, ux, uy, exclW){
@@ -512,6 +597,7 @@ function reattach(skipHosts){
 function snapPoint(sx, sy, from, exclPts, exclW){
   const R=22; let best=null, bd=R;
   for(const p of endpoints(exclPts)){ const q=w2s(p); const d=Math.hypot(q.x-sx,q.y-sy); if(d<bd){ bd=d; best={x:p.x,y:p.y,kind:'end'}; } }
+  const G=ghostLevel(); if(G && !best) for(const w of G.walls) for(const p of [w.a,w.b]){ const q=w2s(p); const d=Math.hypot(q.x-sx,q.y-sy); if(d<bd){ bd=d; best={x:p.x,y:p.y,kind:'end'}; } }
   if(best) return best;
   const w=s2w(sx,sy);
   if(from && db.settings.ortho){
@@ -822,6 +908,15 @@ function rectify(){
   P.dirty=false; P.rectified=true; save(); fitView(); renderProps(); draw();
   return {bad, fixed:SQ.fixed, angled, aligns:P.aligns.length, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
 }
+async function offerRectifyAll(why){
+  syncLevel();
+  const pend=P.levels.map((L,i)=>({L,i})).filter(o=>o.L.walls.some(w=>w.len!=null) && !(o.L.rectified && o.L.dirty===false));
+  if(!pend.length) return true;
+  const go=await ask('Plantas sin rectificar', `Sin rectificar: ${pend.map(o=>o.L.name).join(', ')}. ¿Rectificarlas con las medidas para que ${why}?`, 'Rectificar');
+  if(go){ let warn=false; for(const o of pend){ const r = o.i===P.cur ? rectify() : withLevel(o.i, ()=>rectify()); if(r && (r.bad.length || r.diag.some(c=>Math.abs(c.delta)>0.03))) warn=true; }
+    fitView(); draw(); if(warn) toast('Rectificadas. Hay avisos: revisa ☰ → Rectificar en cada nivel.', 4500); }
+  return true;
+}
 function deltaTxt(dl){ const cm=Math.round(dl*100); return (cm>0?'+':'')+cm+' cm'; }
 function showRectify(r){
   if(!r){ toast('No hay muros para rectificar'); return; }
@@ -946,7 +1041,7 @@ function setTool(t){
 $$('.tool[data-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 function setOpKind(k){ opKind=k; $$('#vanoBar [data-op]').forEach(b=>b.classList.toggle('on', b.dataset.op===k)); }
 $$('#vanoBar [data-op]').forEach(b=>b.onclick=()=>setOpKind(b.dataset.op));
-$('#undoBtn').onclick=undo; $('#fitBtn').onclick=fitView;
+$('#undoBtn').onclick=undo; $('#fitBtn').onclick=fitView; $('#lvBtn').onclick=openLevels;
 function orthoLabel(){ const b=$('#orthoBtn'); b.textContent = db.settings.ortho ? '⟂ Escuadra: Sí' : '∠ Escuadra: No'; b.style.background = db.settings.ortho ? '#fff' : '#fff4e5'; }
 $('#orthoBtn').onclick=()=>{ db.settings.ortho=!db.settings.ortho; save(); orthoLabel(); toast(db.settings.ortho ? 'Los muros se enganchan a 0°/45°/90°' : 'Dibujo libre: puedes hacer muros en cualquier ángulo'); };
 
@@ -1275,65 +1370,69 @@ async function shareOrDownload(blob, filename){
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 function dxfStr(s){ return String(s).replace(/[^\x20-\x7e]/g, c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0')); }
-function buildDXF(p){
-  p=p||P; const L=[]; const add=(...a)=>{ for(const x of a) L.push(String(x)); }; const f=n=>(+n).toFixed(4);
-  const layers=[['MUROS',7],['TABIQUES',8],['EJES',9],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
+function buildDXF(){
+  syncLevel(); const L=[]; const add=(...a)=>{ for(const x of a) L.push(String(x)); }; const f=n=>(+n).toFixed(4);
+  const base=[['MUROS',7],['TABIQUES',8],['EJES',9],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
+  const multi=P.levels.length>1; const layers=[];
+  P.levels.forEach((Lv,i)=>{ for(const [n,c] of base) layers.push([(multi?'N'+(i+1)+'_':'')+n, c]); });
   add(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',0,'ENDSEC');
   add(0,'SECTION',2,'TABLES');
   add(0,'TABLE',2,'LTYPE',70,1,0,'LTYPE',2,'CONTINUOUS',70,0,3,'Solid line',72,65,73,0,40,'0.0',0,'ENDTAB');
   add(0,'TABLE',2,'LAYER',70,layers.length); for(const [n,c] of layers) add(0,'LAYER',2,n,70,0,62,c,6,'CONTINUOUS'); add(0,'ENDTAB',0,'ENDSEC');
   add(0,'SECTION',2,'ENTITIES');
-  const line=(l,a,b)=>add(0,'LINE',8,l,10,f(a.x),20,f(-a.y),30,0,11,f(b.x),21,f(-b.y),31,0);
-  const text=(l,x,y,h,s,deg)=>add(0,'TEXT',8,l,10,f(x),20,f(-y),30,0,40,f(h),1,dxfStr(s),50,f(deg||0),72,1,11,f(x),21,f(-y),31,0);
-  const arcDeg=(cx,cy,r,a1,a2)=>add(0,'ARC',8,'VANOS',10,f(cx),20,f(-cy),30,0,40,f(r),50,f(a1),51,f(a2));
-  const upDeg=(a,b)=>{ let ang=Math.atan2(-(b.y-a.y), b.x-a.x); if(ang>Math.PI/2) ang-=Math.PI; if(ang<=-Math.PI/2) ang+=Math.PI; return ang; };
-  for(const w of p.walls){
-    const Lw=len(w); if(Lw<1e-6) continue; const ux=(w.b.x-w.a.x)/Lw, uy=(w.b.y-w.a.y)/Lw, nx=-uy, ny=ux, h=w.t/2;
-    const lay=w.type==='ext'?'MUROS':'TABIQUES';
-    const pt=(s,side)=>({x:w.a.x+ux*s+nx*h*side, y:w.a.y+uy*s+ny*h*side});
-    // tramos del contorno interrumpidos por los vanos
-    const gaps=p.openings.filter(o=>o.wall===w.id).map(o=>opGeom(o,p)).filter(Boolean).map(g=>[g.c-g.sw/2, g.c+g.sw/2]).sort((a,b)=>a[0]-b[0]);
-    let s0=-h; const segs=[];
-    for(const [g0,g1] of gaps){ if(g0>s0) segs.push([s0,g0]); s0=Math.max(s0,g1); }
-    if(Lw+h>s0) segs.push([s0,Lw+h]);
-    for(const [a0,a1] of segs){ line(lay,pt(a0,1),pt(a1,1)); line(lay,pt(a0,-1),pt(a1,-1)); }
-    for(const [g0,g1] of gaps){ line(lay,pt(g0,1),pt(g0,-1)); line(lay,pt(g1,1),pt(g1,-1)); }
-    line('EJES',w.a,w.b);
-    const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
-    const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
-    text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len)+faceTag(w):'?')+'  ('+w.name+')', ang*180/Math.PI);
-  }
-  for(const o of p.openings){
-    const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
-    if(isWin(o.kind)){ for(const sd of [-1/6,1/6]) line('VANOS',{x:g.p1.x+g.nx*g.w.t*sd,y:g.p1.y+g.ny*g.w.t*sd},{x:g.p2.x+g.nx*g.w.t*sd,y:g.p2.y+g.ny*g.w.t*sd}); }
-    if(o.kind==='door'){
-      const fl=o.flip||0; const hinge=(fl&1)?g.p2:g.p1, other=(fl&1)?g.p1:g.p2; const sd=(fl&2)?-1:1; const r=g.sw;
-      const le={x:hinge.x+g.nx*sd*r, y:hinge.y+g.ny*sd*r}; line('VANOS',hinge,le);
-      const A1=Math.atan2(-(le.y-hinge.y), le.x-hinge.x)*180/Math.PI, A2=Math.atan2(-(other.y-hinge.y), other.x-hinge.x)*180/Math.PI;
-      if(((A2-A1)%360+360)%360<=180) arcDeg(hinge.x,hinge.y,r,A1,A2); else arcDeg(hinge.x,hinge.y,r,A2,A1);
+  const ub=unionBounds(); const step = ub ? (ub.x1-ub.x0)+4 : 0;
+  P.levels.forEach((Lv,li)=>withLevel(li, ()=>{
+    const p=P, pre=multi?'N'+(li+1)+'_':'', DX=li*step;
+    const line=(l,a,b)=>add(0,'LINE',8,pre+l,10,f(a.x+DX),20,f(-a.y),30,0,11,f(b.x+DX),21,f(-b.y),31,0);
+    const text=(l,x,y,h,s2,deg)=>add(0,'TEXT',8,pre+l,10,f(x+DX),20,f(-y),30,0,40,f(h),1,dxfStr(s2),50,f(deg||0),72,1,11,f(x+DX),21,f(-y),31,0);
+    const arcDeg=(cx,cy,r,a1,a2)=>add(0,'ARC',8,pre+'VANOS',10,f(cx+DX),20,f(-cy),30,0,40,f(r),50,f(a1),51,f(a2));
+    const upDeg=(a,b)=>{ let ang=Math.atan2(-(b.y-a.y), b.x-a.x); if(ang>Math.PI/2) ang-=Math.PI; if(ang<=-Math.PI/2) ang+=Math.PI; return ang; };
+    for(const w of p.walls){
+      const Lw=len(w); if(Lw<1e-6) continue; const ux=(w.b.x-w.a.x)/Lw, uy=(w.b.y-w.a.y)/Lw, nx=-uy, ny=ux, h=w.t/2;
+      const lay=w.type==='ext'?'MUROS':'TABIQUES';
+      const pt=(s2,side)=>({x:w.a.x+ux*s2+nx*h*side, y:w.a.y+uy*s2+ny*h*side});
+      const gaps=p.openings.filter(o=>o.wall===w.id).map(o=>opGeom(o,p)).filter(Boolean).map(g=>[g.c-g.sw/2, g.c+g.sw/2]).sort((a,b)=>a[0]-b[0]);
+      let s0=-h; const segs=[];
+      for(const [g0,g1] of gaps){ if(g0>s0) segs.push([s0,g0]); s0=Math.max(s0,g1); }
+      if(Lw+h>s0) segs.push([s0,Lw+h]);
+      for(const [a0,a1] of segs){ line(lay,pt(a0,1),pt(a1,1)); line(lay,pt(a0,-1),pt(a1,-1)); }
+      for(const [g0,g1] of gaps){ line(lay,pt(g0,1),pt(g0,-1)); line(lay,pt(g1,1),pt(g1,-1)); }
+      line('EJES',w.a,w.b);
+      const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
+      const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
+      text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len)+faceTag(w):'?')+'  ('+w.name+')', ang*180/Math.PI);
     }
-    const ang=upDeg(g.p1,g.p2); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(g.p1.x+g.p2.x)/2, myD=-(g.p1.y+g.p2.y)/2, off=h+0.12;
-    const t=`${o.name} a=${fmt(o.len)}`+(o.off!=null?` d=${fmt(o.off)}`:'')+(o.h!=null?` h=${fmt(o.h)}`:'');
-    text(o.len!=null?'VANOS':'SIN_MEDIR', mx-tnx*off, -(myD-tny*off), 0.1, t, ang*180/Math.PI);
-  }
-  for(const d of p.dims){
-    line('DIAGONALES',d.a,d.b);
-    const ang=upDeg(d.a,d.b); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(d.a.x+d.b.x)/2, myD=-(d.a.y+d.b.y)/2;
-    text(d.len!=null?'DIAGONALES':'SIN_MEDIR', mx+tnx*0.1, -(myD+tny*0.1), 0.1, (d.len!=null?fmt(d.len)+faceTag(d):'?')+'  ('+d.name+')', ang*180/Math.PI);
-  }
-  for(const l of p.labels){ text('RECINTOS', l.x, l.y, 0.2, l.text, 0); if(l.h!=null) text('RECINTOS', l.x, l.y+0.3, 0.14, 'h = '+fmt(l.h), 0); }
-  for(const ph of p.photos) if(ph.x!=null){
-    text('FOTOS', ph.x, ph.y, 0.15, ph.name+(ph.caption?' '+ph.caption:''), 0);
-    if(ph.dir!=null){ const L=0.8, e={x:ph.x+Math.cos(ph.dir)*L, y:ph.y+Math.sin(ph.dir)*L}; line('FOTOS', ph, e);
-      for(const s2 of [-1,1]) line('FOTOS', e, {x:e.x-Math.cos(ph.dir+s2*0.45)*0.18, y:e.y-Math.sin(ph.dir+s2*0.45)*0.18}); }
-  }
-  const b=bounds(p);
-  if(b){
-    const x=b.x0, y=b.y0-1.2;
-    text('NOTAS', x+4, y, 0.3, p.name||'Levantamiento', 0);
-    text('NOTAS', x+4, y+0.45, 0.18, [p.address,p.owner,p.date].filter(Boolean).join(' - '), 0);
-    text('NOTAS', x+4, y+0.75, 0.14, 'Croquis de levantamiento. Medidas en metros. Trazo aproximado: valen las cotas.', 0);
-  }
+    for(const o of p.openings){
+      const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
+      if(isWin(o.kind)){ for(const sd of [-1/6,1/6]) line('VANOS',{x:g.p1.x+g.nx*g.w.t*sd,y:g.p1.y+g.ny*g.w.t*sd},{x:g.p2.x+g.nx*g.w.t*sd,y:g.p2.y+g.ny*g.w.t*sd}); }
+      if(o.kind==='door'){
+        const fl=o.flip||0; const hinge=(fl&1)?g.p2:g.p1, other=(fl&1)?g.p1:g.p2; const sd=(fl&2)?-1:1; const r=g.sw;
+        const le={x:hinge.x+g.nx*sd*r, y:hinge.y+g.ny*sd*r}; line('VANOS',hinge,le);
+        const A1=Math.atan2(-(le.y-hinge.y), le.x-hinge.x)*180/Math.PI, A2=Math.atan2(-(other.y-hinge.y), other.x-hinge.x)*180/Math.PI;
+        if(((A2-A1)%360+360)%360<=180) arcDeg(hinge.x,hinge.y,r,A1,A2); else arcDeg(hinge.x,hinge.y,r,A2,A1);
+      }
+      const ang=upDeg(g.p1,g.p2); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(g.p1.x+g.p2.x)/2, myD=-(g.p1.y+g.p2.y)/2, off=h+0.12;
+      const t=`${o.name} a=${fmt(o.len)}`+(o.off!=null?` d=${fmt(o.off)}`:'')+(o.h!=null?` h=${fmt(o.h)}`:'')+(o.kind==='win'?` ap=${fmt(sillOf(o))}`:'');
+      text(o.len!=null?'VANOS':'SIN_MEDIR', mx-tnx*off, -(myD-tny*off), 0.1, t, ang*180/Math.PI);
+    }
+    for(const d of p.dims){
+      line('DIAGONALES',d.a,d.b);
+      const ang=upDeg(d.a,d.b); const tnx=-Math.sin(ang), tny=Math.cos(ang); const mx=(d.a.x+d.b.x)/2, myD=-(d.a.y+d.b.y)/2;
+      text(d.len!=null?'DIAGONALES':'SIN_MEDIR', mx+tnx*0.1, -(myD+tny*0.1), 0.1, (d.len!=null?fmt(d.len)+faceTag(d):'?')+'  ('+d.name+')', ang*180/Math.PI);
+    }
+    for(const l of p.labels){ text('RECINTOS', l.x, l.y, 0.2, l.text, 0); if(l.h!=null) text('RECINTOS', l.x, l.y+0.3, 0.14, 'h = '+fmt(l.h), 0); }
+    for(const ph of p.photos) if(ph.x!=null){
+      text('FOTOS', ph.x, ph.y, 0.15, ph.name+(ph.caption?' '+ph.caption:''), 0);
+      if(ph.dir!=null){ const L2=0.8, e={x:ph.x+Math.cos(ph.dir)*L2, y:ph.y+Math.sin(ph.dir)*L2}; line('FOTOS', ph, e);
+        for(const s2 of [-1,1]) line('FOTOS', e, {x:e.x-Math.cos(ph.dir+s2*0.45)*0.18, y:e.y-Math.sin(ph.dir+s2*0.45)*0.18}); }
+    }
+    if(ub){
+      const x=ub.x0, y=ub.y0-1.2;
+      text('NOTAS', x+4, y, 0.3, (li===0?(P.name||'Levantamiento')+' — ':'')+Lv.name+'  NPT '+fmtNPT(nptOf(li)), 0);
+      if(li===0){ text('NOTAS', x+4, y+0.45, 0.18, [P.address,P.owner,P.date].filter(Boolean).join(' - '), 0);
+        text('NOTAS', x+4, y+0.75, 0.14, 'Croquis de levantamiento. Medidas en metros. Trazo aproximado: valen las cotas.', 0); }
+    }
+  }));
   add(0,'ENDSEC',0,'EOF');
   return L.join('\r\n')+'\r\n';
 }
@@ -1345,7 +1444,7 @@ function buildPNG(){
     const cw=Math.round(bw*s+2*pad), head=150; const ch=Math.round(bh*s+2*pad+head);
     const c=document.createElement('canvas'); c.width=cw; c.height=ch; const x=c.getContext('2d');
     x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
-    x.fillStyle='#1f2a37'; x.font='700 40px system-ui'; x.fillText(P.name||'Levantamiento', pad, 64);
+    x.fillStyle='#1f2a37'; x.font='700 40px system-ui'; x.fillText((P.name||'Levantamiento')+(P.levels.length>1?' — '+P.levels[P.cur].name+' (NPT '+fmtNPT(nptOf(P.cur))+')':''), pad, 64);
     x.font='26px system-ui'; x.fillStyle='#4b5563'; x.fillText([P.address,P.owner,P.date].filter(Boolean).join('  ·  '), pad, 104);
     x.font='italic 20px system-ui'; x.fillText('Croquis de levantamiento — medidas en metros — trazo aproximado', pad, 136);
     renderPlan(x, {s, ox:pad-b.x0*s, oy:head+pad-b.y0*s}, {k, names:true, bg:'#fff'});
@@ -1354,13 +1453,17 @@ function buildPNG(){
 }
 function buildCSV(){
   const n=v=>v==null?'':String(v.toFixed(2)).replace('.',',');
-  const rows=[['Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Cara medida','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
-  for(const {e,kind} of measurable()){
-    if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([e.name, OPNAME[e.kind], (w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'')+(isWin(e.kind)?' antepecho '+fmt(sillOf(e)):''), '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
-    else rows.push([e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
-  }
-  for(const l of P.labels) rows.push(['', 'Recinto', l.text, '', '', '', '', n(l.h), '']);
-  for(const ph of P.photos) for(const a of ph.arrows) rows.push([ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '']);
+  const rows=[['Nivel','Elemento','Tipo','En muro','Espesor (m)','Medida / ancho (m)','Cara medida','Dist. a esquina (m)','Alto (m)','Largo trazo (m)']];
+  syncLevel();
+  P.levels.forEach((Lv,li)=>withLevel(li, ()=>{
+    const N=Lv.name+' ('+fmtNPT(nptOf(li))+')';
+    for(const {e,kind} of measurable()){
+      if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([N, e.name, OPNAME[e.kind], (w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'')+(isWin(e.kind)?' antepecho '+fmt(sillOf(e)):''), '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
+      else rows.push([N, e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
+    }
+    for(const l of P.labels) rows.push([N, '', 'Recinto', l.text, '', '', '', '', n(l.h), '']);
+    for(const ph of P.photos) for(const a of ph.arrows) rows.push([N, ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '', '']);
+  }));
   return '﻿'+rows.map(r=>r.map(c=>/[;"\n]/.test(c)?'"'+String(c).replace(/"/g,'""')+'"':c).join(';')).join('\r\n');
 }
 /* ============ Informe PDF ============ */
@@ -1377,18 +1480,21 @@ function refLabel(o){
   const n=P.walls.find(x=>x!==w && [x.a,x.b].some(q=>Math.abs(q.x-rp.x)<1e-6 && Math.abs(q.y-rp.y)<1e-6));
   return n ? 'esquina con '+n.name : (o.ref==='b'?'extremo final':'extremo inicial');
 }
-function planImage(boxW, boxH){
-  const b=bounds(); if(!b) return null;
-  const pxmm=10, margin=14;
-  const bw=Math.max(b.x1-b.x0,0.5), bh=Math.max(b.y1-b.y0,0.5);
+function planScale(boxW, boxH, b){
+  const margin=14, bw=Math.max(b.x1-b.x0,0.5), bh=Math.max(b.y1-b.y0,0.5);
   const SC=[20,25,50,75,100,125,150,200,250,300,400,500,750,1000,1500,2000];
-  let den=SC.find(d=>bw*1000/d+2*margin<=boxW && bh*1000/d+2*margin<=boxH)||null;
-  const mmPerM = den ? 1000/den : Math.min((boxW-2*margin)/bw, (boxH-2*margin)/bh);
-  const s=mmPerM*pxmm, cw=Math.round(boxW*pxmm), ch=Math.round(boxH*pxmm);
+  const den=SC.find(d=>bw*1000/d+2*margin<=boxW && bh*1000/d+2*margin<=boxH)||null;
+  return {den, mmPerM: den ? 1000/den : Math.min((boxW-2*margin)/bw, (boxH-2*margin)/bh)};
+}
+function planImage(boxW, boxH, b, sc){
+  // b: encuadre común a todos los niveles; sc: escala común
+  b=b||bounds(); if(!b) return null; sc=sc||planScale(boxW, boxH, b);
+  const pxmm=10, bw=Math.max(b.x1-b.x0,0.5), bh=Math.max(b.y1-b.y0,0.5);
+  const s=sc.mmPerM*pxmm, cw=Math.round(boxW*pxmm), ch=Math.round(boxH*pxmm);
   const c=document.createElement('canvas'); c.width=cw; c.height=ch; const x=c.getContext('2d');
   x.fillStyle='#fff'; x.fillRect(0,0,cw,ch);
   renderPlan(x, {s, ox:cw/2-(b.x0+bw/2)*s, oy:ch/2-(b.y0+bh/2)*s}, {k:pxmm*0.21, names:true, bg:'#fff'});
-  return {data:c.toDataURL('image/png'), den, mmPerM};
+  return {data:c.toDataURL('image/png'), den:sc.den, mmPerM:sc.mmPerM};
 }
 async function photoImage(ph){
   const blob=await idb.get(ph.id); if(!blob) return null;
@@ -1402,8 +1508,10 @@ async function buildReport(){
   const jsPDF=await ensurePdf();
   const doc=new jsPDF({unit:'mm', format:'letter', orientation:'portrait'});
   const PW=215.9, PH=279.4, M=15, CW=PW-2*M, ink=[31,42,55], grey=[107,114,128];
-  const c=countFields();
-  // ---- Página 1: datos + planta ----
+  syncLevel(); const c=countAll(); const multi=P.levels.length>1;
+  const sinMedir=d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } };
+  const TS={styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255, fontStyle:'bold'}, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid', didParseCell:sinMedir};
+  // ---- Página 1: datos ----
   doc.setFillColor(...ink); doc.rect(0,0,PW,24,'F');
   doc.setTextColor(255); doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.text('INFORME DE LEVANTAMIENTO', M, 11);
   doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.text('Croquis de terreno con medición láser', M, 17.5);
@@ -1411,115 +1519,135 @@ async function buildReport(){
   doc.autoTable({startY:29, margin:{left:M,right:M}, theme:'plain', styles:{fontSize:10, cellPadding:1.4, textColor:ink},
     columnStyles:{0:{fontStyle:'bold', cellWidth:48, textColor:grey}},
     body:[['Proyecto',P.name||'—'],['Dirección',P.address||'—'],['Propietario',P.owner||'—'],['Fecha de levantamiento',fmtDate(P.date)],
-      ['Levantado por',db.settings.author||'—'],['Avance',`${c.m} de ${c.n} medidas registradas · ${P.photos.length} foto(s)`]]});
-  let y=doc.lastAutoTable.finalY+5;
-  const iy=y+9, ih=PH-iy-22; const pl=planImage(CW, ih);
-  doc.setDrawColor(...ink); doc.setLineWidth(0.4); doc.line(M,y,PW-M,y);
-  doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('PLANTA DE LEVANTAMIENTO', M, y+5.5);
-  if(pl){
+      ['Levantado por',db.settings.author||'—'],['Avance',`${c.m} de ${c.n} medidas registradas · ${c.f} foto(s)`+(multi?` · ${P.levels.length} niveles`:'')]]});
+  let y=doc.lastAutoTable.finalY+4;
+  if(multi){
+    doc.autoTable({...TS, startY:y, head:[['Nivel','Piso (NPT)','Altura interior','Cielo','Losa']],
+      body:P.levels.map((L,i)=>[L.name, fmtNPT(nptOf(i)), fmt(levelH(L)), fmtNPT(nptOf(i)+levelH(L)), fmt(slabOf(L))]),
+      columnStyles:{1:{halign:'right',fontStyle:'bold'},2:{halign:'right'},3:{halign:'right'},4:{halign:'right'}}});
+    doc.setFontSize(7.5); doc.setTextColor(...grey); doc.text('Niveles referidos al ±0,00 del proyecto.', M, doc.lastAutoTable.finalY+3.5);
+    y=doc.lastAutoTable.finalY+6;
+  }
+  // ---- Plantas: misma escala y encuadre para todos los niveles ----
+  const ub=unionBounds();
+  const box1={w:CW, h:PH-(y+9)-22}, boxN={w:CW, h:PH-29-22};
+  const sc= ub ? planScale(CW, multi?Math.min(box1.h, boxN.h):box1.h, ub) : null;
+  const allOk=P.levels.every(L=>L.rectified && L.dirty===false);
+  for(let li=0; li<P.levels.length; li++){
+    if(li>0){ doc.addPage(); y=16; }
+    const Lv=P.levels[li], iy=y+9, ih= li===0 ? box1.h : boxN.h;
+    doc.setDrawColor(...ink); doc.setLineWidth(0.4); doc.line(M,y,PW-M,y);
+    doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(11);
+    doc.text(multi ? `PLANTA ${Lv.name.toUpperCase()}  ·  NPT ${fmtNPT(nptOf(li))}` : 'PLANTA DE LEVANTAMIENTO', M, y+5.5);
+    const pl = ub ? withLevel(li, ()=>planImage(CW, ih, ub, sc)) : null;
+    const ok=Lv.rectified && Lv.dirty===false;
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    const ok=P.rectified && P.dirty===false; doc.text(ok ? (pl.den ? `Escala 1:${pl.den}` : 'Sin escala') : 'Croquis sin escala (planta no rectificada)', PW-M, y+5.5, {align:'right'});
+    if(!pl){ doc.text('Sin elementos dibujados.', M, y+14); continue; }
+    doc.text(ok ? (pl.den ? `Escala 1:${pl.den}` : 'Sin escala') : 'Croquis sin escala (no rectificado)', PW-M, y+5.5, {align:'right'});
     doc.addImage(pl.data,'PNG',M,iy,CW,ih,undefined,'FAST');
     doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(M,iy,CW,ih);
-    // escala gráfica
-    const by=iy+ih+4; if(!ok){ doc.setFontSize(8); doc.setTextColor(...grey); doc.text('Croquis: proporciones aproximadas, valen las cotas.', M, by+3); } else { const Ls=[1,2,5,10,20,50,100]; let L=1; for(const l of Ls) if(l*pl.mmPerM<=50) L=l;
-    const seg=L*pl.mmPerM/4; doc.setDrawColor(...ink); doc.setLineWidth(0.2);
-    for(let i=0;i<4;i++){ doc.setFillColor(...(i%2?[255,255,255]:ink)); doc.rect(M+i*seg, by, seg, 1.6, 'FD'); }
-    doc.setFontSize(7.5); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'}); }
+    const by=iy+ih+4;
+    if(!ok){ doc.setFontSize(8); doc.setTextColor(...grey); doc.text('Croquis: proporciones aproximadas, valen las cotas.', M, by+3); }
+    else { const Ls=[1,2,5,10,20,50,100]; let L=1; for(const l of Ls) if(l*pl.mmPerM<=50) L=l;
+      const seg=L*pl.mmPerM/4; doc.setDrawColor(...ink); doc.setLineWidth(0.2);
+      for(let i=0;i<4;i++){ doc.setFillColor(...(i%2?[255,255,255]:ink)); doc.rect(M+i*seg, by, seg, 1.6, 'FD'); }
+      doc.setFontSize(7.5); doc.setTextColor(...ink); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'}); }
     doc.setTextColor(...grey); doc.setFontSize(8);
     doc.text((ok?'Planta rectificada con las medidas láser. ':'')+'Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-60});
-  } else { doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text('Sin elementos dibujados.', M, y+14); }
-  // ---- Tabla de medidas ----
-  doc.addPage();
-  doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('TABLA DE MEDIDAS', M, 24);
-  const v=x=>x==null?'':fmt(x);
-  const dc={}; if(P.rectified && P.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
-  const rows=measurable().map(({e,kind})=>{
-    if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):'')+(isWin(e.kind)?`, antepecho ${fmt(sillOf(e))}`:''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
-    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
-  });
-  doc.autoTable({startY:28, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid',
-    head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
-    body:rows.length?rows:[['—','','Sin elementos','','','','']],
-    styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255, fontStyle:'bold'},
-    columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'center'},6:{halign:'right'},7:{halign:'right'}},
-    didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
-  y=doc.lastAutoTable.finalY+8;
-  if(P.labels.length){
-    if(y>PH-50){ doc.addPage(); y=26; }
-    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Recintos', M, y);
-    doc.autoTable({startY:y+3, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid', head:[['Recinto','Altura interior (m)']],
-      body:P.labels.map(l=>[l.text, l.h==null?'sin medir':fmt(l.h)]), tableWidth:110,
-      styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255},
-      columnStyles:{1:{halign:'right',fontStyle:'bold'}},
-      didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
-    y=doc.lastAutoTable.finalY+8;
   }
-  const pc=[]; for(const ph of P.photos) for(const a of ph.arrows) pc.push([ph.name, ph.caption||'', a.name, a.len==null?'sin medir':fmt(a.len)]);
-  if(pc.length){
-    if(y>PH-50){ doc.addPage(); y=26; }
-    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.text('Cotas en fotografías', M, y);
-    doc.autoTable({startY:y+3, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid', head:[['Foto','Descripción','Cota','Medida']], body:pc,
-      styles:{fontSize:9, cellPadding:1.6, textColor:ink, lineColor:[214,211,204]}, headStyles:{fillColor:ink, textColor:255},
-      columnStyles:{3:{halign:'right',fontStyle:'bold'}},
-      didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
+  // ---- Tablas por nivel ----
+  const v=x=>x==null?'':fmt(x);
+  doc.addPage(); y=24;
+  for(let li=0; li<P.levels.length; li++){
+    const Lv=P.levels[li];
+    withLevel(li, ()=>{
+      if(y>PH-60){ doc.addPage(); y=24; }
+      doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12);
+      doc.text('TABLA DE MEDIDAS'+(multi?`  ·  ${Lv.name.toUpperCase()} (NPT ${fmtNPT(nptOf(li))})`:''), M, y);
+      const dc={}; if(Lv.rectified && Lv.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
+      const rows=measurable().map(({e,kind})=>{
+        if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):'')+(isWin(e.kind)?`, antepecho ${fmt(sillOf(e))}`:''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
+        return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':e.use?'define la forma':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):(e.ortho===false||!isOrtho(e)?'en ángulo':''), kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
+      });
+      doc.autoTable({...TS, startY:y+4, head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
+        body:rows.length?rows:[['—','','Sin elementos','','','','','']],
+        columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'center'},6:{halign:'right'},7:{halign:'right'}}});
+      y=doc.lastAutoTable.finalY+8;
+      if(P.labels.length){
+        if(y>PH-50){ doc.addPage(); y=26; }
+        doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...ink); doc.text('Recintos'+(multi?' · '+Lv.name:''), M, y);
+        doc.autoTable({...TS, startY:y+3, head:[['Recinto','Altura interior (m)','Piso (NPT)']],
+          body:P.labels.map(l=>[l.text, l.h==null?'sin medir':fmt(l.h), fmtNPT(nptOf(li))]), tableWidth:140,
+          columnStyles:{1:{halign:'right',fontStyle:'bold'},2:{halign:'right'}}});
+        y=doc.lastAutoTable.finalY+8;
+      }
+      const pc=[]; for(const ph of P.photos) for(const a of ph.arrows) pc.push([ph.name, ph.caption||'', a.name, a.len==null?'sin medir':fmt(a.len)]);
+      if(pc.length){
+        if(y>PH-50){ doc.addPage(); y=26; }
+        doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...ink); doc.text('Cotas en fotografías'+(multi?' · '+Lv.name:''), M, y);
+        doc.autoTable({...TS, startY:y+3, head:[['Foto','Descripción','Cota','Medida']], body:pc, columnStyles:{3:{halign:'right',fontStyle:'bold'}}});
+        y=doc.lastAutoTable.finalY+10;
+      }
+    });
   }
   // ---- Fotografías: 2 por página ----
   const slotTop=[22, 22+(PH-22-16)/2], slotH=(PH-22-16)/2-4;
   let i=0;
-  for(const ph of P.photos){
-    const data=await photoImage(ph); if(!data) continue;
-    if(i%2===0){ doc.addPage(); doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12); }
-    const top=slotTop[i%2];
-    doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
-    doc.text(`${ph.name}${ph.caption?' · '+ph.caption:''}`, M, top+4);
-    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...grey);
-    doc.text(`${ph.arrows.length} cota(s) · ${ph.notes.length} nota(s)${ph.x!=null?' · ubicada en planta':''}`, PW-M, top+4, {align:'right'});
-    const aw=CW, ah=slotH-8; const r=Math.min(aw/ph.w, ah/ph.h); const w=ph.w*r, h=ph.h*r;
-    doc.addImage(data,'JPEG', M+(aw-w)/2, top+7, w, h, undefined, 'FAST');
-    i++;
+  for(let li=0; li<P.levels.length; li++){
+    for(const ph of P.levels[li].photos){
+      const data=await photoImage(ph); if(!data) continue;
+      if(i%2===0) doc.addPage();
+      const top=slotTop[i%2];
+      doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+      doc.text(`${multi?P.levels[li].name+' · ':''}${ph.name}${ph.caption?' · '+ph.caption:''}`, M, top+4);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(...grey);
+      doc.text(`${ph.arrows.length} cota(s) · ${ph.notes.length} nota(s)${ph.x!=null?' · ubicada en planta':''}`, PW-M, top+4, {align:'right'});
+      const aw=CW, ah=slotH-8; const r=Math.min(aw/ph.w, ah/ph.h); const w=ph.w*r, h=ph.h*r;
+      doc.addImage(data,'JPEG', M+(aw-w)/2, top+7, w, h, undefined, 'FAST');
+      i++;
+    }
   }
   // ---- Encabezados y pies ----
   const N=doc.getNumberOfPages();
-  for(let p=1;p<=N;p++){
-    doc.setPage(p); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...grey);
-    if(p>1){ doc.text(`${P.name||'Levantamiento'}${P.address?' · '+P.address:''}`, M, 11); doc.text('Informe de levantamiento', PW-M, 11, {align:'right'});
+  for(let pg=1;pg<=N;pg++){
+    doc.setPage(pg); doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(...grey);
+    if(pg>1){ doc.text(`${P.name||'Levantamiento'}${P.address?' · '+P.address:''}`, M, 11); doc.text('Informe de levantamiento', PW-M, 11, {align:'right'});
       doc.setDrawColor(214,211,204); doc.setLineWidth(0.3); doc.line(M,13,PW-M,13); }
-    doc.line(M,PH-11,PW-M,PH-11);
+    doc.setDrawColor(214,211,204); doc.line(M,PH-11,PW-M,PH-11);
     doc.text(db.settings.author?('Levantado por '+db.settings.author):'', M, PH-7);
-    doc.text(`Página ${p} de ${N}`, PW-M, PH-7, {align:'right'});
+    doc.text(`Página ${pg} de ${N}`, PW-M, PH-7, {align:'right'});
   }
   return doc.output('blob');
 }
 
 /* ============ Exportar para Revit (lo lee el script de Dynamo) ============ */
 function buildRevitJSON(){
-  const b=bounds(); const X0=b?b.x0:0, Y0=b?b.y1:0;
-  const pt=q=>[r3(q.x-X0), r3(Y0-q.y)];                       // metros, Y hacia arriba como en Revit
-  const walls=P.walls.filter(w=>len(w)>1e-6);
-  return JSON.stringify({
-    app:'levantamiento', version:1, units:'m',
-    project:{name:P.name, address:P.address, owner:P.owner, date:P.date, rectified:!!(P.rectified && P.dirty===false)},
-    walls: walls.map(w=>{ const H=wallHeight(w); return {id:w.id, name:w.name, kind:w.type==='ext'?'muro':'tabique', thickness:w.t,
+  syncLevel(); const b=unionBounds(); const X0=b?b.x0:0, Y0=b?b.y1:0;           // origen común a todos los niveles
+  const pt=q=>[r3(q.x-X0), r3(Y0-q.y)];                                         // metros, Y hacia arriba como en Revit
+  const levels=P.levels.map((Lv,li)=>withLevel(li, ()=>({
+    name:Lv.name, elevation:r3(nptOf(li)), slab:r3(slabOf(Lv)), rectified:!!(Lv.rectified && Lv.dirty===false),
+    walls: P.walls.filter(w=>len(w)>1e-6).map(w=>{ const H=wallHeight(w); return {id:w.id, name:w.name, kind:w.type==='ext'?'muro':'tabique', thickness:w.t,
       start:pt(w.a), end:pt(w.b), height:r3(H.v), height_from:H.src, measured:w.len, face:faceOf(w)}; }),
-    openings: P.openings.map(o=>{ const g=opGeom(o); if(!g) return null; const k=g.k||1;
+    openings: P.openings.map(o=>{ const g=opGeom(o); if(!g) return null;
       return {id:o.id, name:o.name, kind:{door:'door', win:'window', fwin:'floor_window', gap:'opening'}[o.kind], wall:o.wall,
         center:r3(g.c), width:r3(o.len ?? OPDEF[o.kind]), height:r3(opHeight(o)), sill:r3(sillOf(o)), flip:o.flip||0, measured:o.len!=null}; }).filter(Boolean),
     rooms: P.labels.map(l=>({name:l.text, at:pt(l), height:l.h}))
-  }, null, 1);
+  })));
+  return JSON.stringify({app:'levantamiento', version:2, units:'m',
+    project:{name:P.name, address:P.address, owner:P.owner, date:P.date, rectified:levels.every(l=>l.rectified)}, levels}, null, 1);
 }
 
 function blobToDataURL(b){ return new Promise(r=>{ const fr=new FileReader(); fr.onload=()=>r(fr.result); fr.readAsDataURL(b); }); }
 async function buildBackup(){
-  const imgs={}; for(const ph of P.photos){ try{ const b=await idb.get(ph.id); if(b) imgs[ph.id]=await blobToDataURL(b); }catch(e){} }
+  syncLevel(); const imgs={}; for(const ph of P.levels.flatMap(L=>L.photos)){ try{ const b=await idb.get(ph.id); if(b) imgs[ph.id]=await blobToDataURL(b); }catch(e){} }
   return JSON.stringify({app:'levantamiento', v:2, project:P, images:imgs});
 }
 
 /* ============ Menú ============ */
 function updateHeader(){ $('#pname').textContent=P.name||'Levantamiento'; $('#paddr').textContent=[P.address,P.owner].filter(Boolean).join(' · ')||'Toca para datos, proyectos y exportar'; document.title=(P.name||'Levantamiento')+' — Croquis'; }
 function openMenu(){
-  const list=db.projects.map(p=>{ normalize(p); const c=countFields(p);
-    return `<div class="it ${p.id===P.id?'cur':''}"><div><b>${esc(p.name)}</b><small>${esc(p.address||'')} · ${esc(p.date)} · ${c.m}/${c.n} medidos · ${p.photos.length} fotos</small></div>
+  const list=db.projects.map(p=>{ normalize(p); const c=countAll(p);
+    return `<div class="it ${p.id===P.id?'cur':''}"><div><b>${esc(p.name)}</b><small>${esc(p.address||'')} · ${esc(p.date)} · ${p.levels.length} nivel(es) · ${c.m}/${c.n} medidos · ${c.f} fotos</small></div>
       ${p.id===P.id?'':`<button data-open="${p.id}">Abrir</button>`}<button class="danger" data-del="${p.id}">✕</button></div>`; }).join('');
   const photos=P.photos.map(f=>`<div class="it"><div><b>${esc(f.name)} ${esc(f.caption||'')}</b><small>${f.arrows.length} cotas · ${f.notes.length} notas${f.x==null?' · sin ubicar en plano':''}</small></div><button data-ph="${f.id}">Abrir</button></div>`).join('') || '<p style="color:var(--muted)">Aún no hay fotos. Usa la herramienta «Foto» y toca en el plano.</p>';
   const s=db.settings;
@@ -1537,7 +1665,7 @@ function openMenu(){
     <div class="grid2"><button class="pri" id="xDXF">Plano DXF (CAD)</button><button class="pri" id="xPNG">Imagen PNG</button>
     <button id="xCSV">Tabla de medidas (CSV)</button><button id="xJSON">Respaldo completo</button></div>
     <button class="big" id="xRVT" style="margin-top:8px">🏗 Para Revit (muros, vanos y alturas)</button>
-    <h3>Fotos</h3>
+    <h3>Fotos de este nivel</h3>
     <div class="plist">${photos}</div>
     <button id="mPhoto">+ Foto sin ubicar en el plano</button>
     <h3>Proyectos</h3>
@@ -1549,6 +1677,7 @@ function openMenu(){
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
     <div class="grid2"><div class="f">Antepecho ventanas (m)<input id="sSill" type="number" step="0.01" inputmode="decimal" value="${s.sillDef??0.9}"></div>
+    <div class="f">Losa entre niveles (m)<input id="sSlab" type="number" step="0.01" inputmode="decimal" value="${s.slabDef??0.2}"></div>
     <div class="f">Altura muros sin recinto (m)<input id="sHDef" type="number" step="0.01" inputmode="decimal" value="${s.hDef??2.4}"></div></div>
     <label class="tg">Cara por defecto al medir muros
       <select id="sFace" style="font:inherit;padding:6px;border-radius:8px;border:1px solid var(--line)">${['int','ext','eje'].map(f=>`<option value="${f}" ${(s.faceDef||'int')===f?'selected':''}>${FACES[f]}</option>`).join('')}</select></label>
@@ -1572,10 +1701,7 @@ function openMenu(){
   $('#mAuthor').onchange=e=>{ db.settings.author=e.target.value.trim(); save(); };
   $('#xPDF').onclick=async()=>{
     if(!P.walls.length && !P.photos.length) return toast('Aún no hay nada para el informe');
-    if(P.walls.some(w=>w.len!=null) && !(P.rectified && P.dirty===false)){
-      const go=await ask('Planta sin rectificar', 'La planta todavía es el croquis a mano. ¿Rectificarla con las medidas para que el informe quede a escala?', 'Rectificar');
-      if(go){ const r=rectify(); if(r && (r.bad.length || r.diag.some(c=>Math.abs(c.delta)>0.03))) toast('Rectificada. Revisa los avisos en ☰ → Rectificar.', 4000); }
-    }
+    if(!(await offerRectifyAll('el informe quede a escala'))) return;
     toast('Generando informe…', 6000);
     try{ const b=await buildReport(); shareOrDownload(b, safeName()+'_informe.pdf'); }
     catch(err){ toast(String(err&&err.message).includes('conexión') ? 'Para generar el PDF necesitas internet (se descarga el generador).' : 'No se pudo generar el informe: '+(err&&err.message||err), 5000); }
@@ -1587,13 +1713,11 @@ function openMenu(){
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
   $('#xRVT').onclick=async()=>{
     if(!P.walls.length) return toast('Aún no hay muros');
-    if(!(P.rectified && P.dirty===false)){
-      const go=await ask('Planta sin rectificar', 'Para Revit conviene la planta a escala real. ¿Rectificar con las medidas antes de exportar?', 'Rectificar');
-      if(go) rectify();
-    }
+    if(!(await offerRectifyAll('Revit reciba la planta a escala real'))) return;
     shareOrDownload(new Blob([buildRevitJSON()],{type:'application/json'}), safeName()+'_revit.json');
   };
   $('#sSill').onchange=e=>{ const v=num(e.target.value); if(v!=null){ db.settings.sillDef=v; save(); } };
+  $('#sSlab').onchange=e=>{ const v=num(e.target.value); if(v!=null&&v>=0){ db.settings.slabDef=v; save(); updateLevelPill(); } };
   $('#sHDef').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.hDef=v; save(); } };
   $('#sFace').onchange=e=>{ db.settings.faceDef=e.target.value; P.dirty=true; save(); draw(); };
   $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
@@ -1614,7 +1738,7 @@ function openMenu(){
     const p=db.projects.find(x=>x.id===b.dataset.del); if(!p) return;
     const ok=await ask('Eliminar levantamiento', `Se borrará «${p.name}» y sus fotos de este teléfono. No se puede deshacer.`, 'Eliminar', true);
     if(!ok){ openMenu(); return; }
-    for(const ph of (p.photos||[])){ try{ await idb.del(ph.id); }catch(e){} }
+    for(const L of (p.levels||[p])) for(const ph of (L.photos||[])){ try{ await idb.del(ph.id); }catch(e){} }
     db.projects=db.projects.filter(x=>x.id!==p.id);
     if(p.id===P.id){ if(db.projects.length) openProject(db.projects[0].id); else newProject('Levantamiento'); }
     save(); openMenu();
@@ -1626,7 +1750,7 @@ $('#fileIn').onchange=async e=>{
   try{
     const d=JSON.parse(await f.text()); const p=normalize(d.project||d); if(!Array.isArray(p.walls)) throw 0;
     p.id='p'+Date.now(); const imgs=d.images||{};
-    for(const ph of p.photos){
+    for(const ph of p.levels.flatMap(L=>L.photos)){
       const nid='ph'+Date.now()+Math.floor(Math.random()*100000);
       if(imgs[ph.id]){ const blob=await (await fetch(imgs[ph.id])).blob(); await idb.put(nid, blob); }
       ph.id=nid;
@@ -1641,7 +1765,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext'); orthoLabel();
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, addLevel, switchLevel, nptOf, syncLevel, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>

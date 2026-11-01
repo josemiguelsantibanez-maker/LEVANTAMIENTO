@@ -2,8 +2,9 @@
 """
 Levantamiento -> Revit  (Dynamo 3.x, motor CPython3 — Revit 2025)
 
-Lee el archivo "..._revit.json" que exporta la app de levantamiento y crea, en el nivel más bajo
-del modelo (o en el nivel indicado en IN[1]):
+Lee el archivo "..._revit.json" que exporta la app de levantamiento. El ±0,00 del levantamiento se
+ubica en el nivel más bajo del modelo (o en el nivel indicado en IN[1]); cada nivel del levantamiento
+usa el nivel de Revit que esté a su cota (NPT) o se crea uno nuevo con su vista de planta. En cada nivel crea:
   - Tipos de muro "Levantamiento NN cm" (una capa, según espesor) y muros nativos por su eje, con su altura.
   - Puertas, ventanas y ventanales: duplica un tipo de la familia cargada con el ancho y alto medidos.
   - Vanos vacíos: aberturas rectangulares en el muro.
@@ -11,7 +12,7 @@ del modelo (o en el nivel indicado en IN[1]):
 
 Entradas:
   IN[0]  ruta del archivo .json (nodo File Path)
-  IN[1]  (opcional) nombre del nivel. Vacío = nivel más bajo
+  IN[1]  (opcional) nombre del nivel de Revit que corresponde al ±0,00. Vacío = nivel más bajo
   IN[2]  (opcional) texto que contenga el nombre de la familia de puertas a usar
   IN[3]  (opcional) texto que contenga el nombre de la familia de ventanas a usar
 Ejecutar UNA sola vez en modo Manual: cada ejecución vuelve a crear los elementos.
@@ -60,14 +61,49 @@ if not path or not os.path.isfile(str(path)):
 with open(path, encoding='utf-8') as f:
     data = json.load(f)
 
-# ---------- nivel ----------
-levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(), key=lambda l: l.Elevation)
-level = levels[0]
+# ---------- niveles ----------
+rv_levels = sorted(FilteredElementCollector(doc).OfClass(Level).ToElements(), key=lambda l: l.Elevation)
+base = rv_levels[0]
 if level_name:
-    for l in levels:
+    for l in rv_levels:
         if l.Name == level_name:
-            level = l
-z0 = level.Elevation
+            base = l
+base_z = base.Elevation      # pies; corresponde al ±0,00 del levantamiento
+
+# archivos antiguos (un solo nivel) -> mismo formato que los nuevos
+if 'levels' not in data:
+    data['levels'] = [{'name': 'Nivel 1', 'elevation': 0.0, 'walls': data.get('walls', []),
+                       'openings': data.get('openings', []), 'rooms': data.get('rooms', [])}]
+
+plan_vft = None
+for vft in FilteredElementCollector(doc).OfClass(ViewFamilyType).ToElements():
+    if vft.ViewFamily == ViewFamily.FloorPlan:
+        plan_vft = vft
+        break
+
+def level_for(lv):
+    z = base_z + ft(lv.get('elevation', 0))
+    for l in FilteredElementCollector(doc).OfClass(Level).ToElements():
+        if abs(l.Elevation - z) < 0.01:          # ~3 mm
+            return l, False
+    nl = Level.Create(doc, z)
+    try:
+        nl.Name = lv.get('name') or nl.Name
+    except Exception:
+        try:
+            nl.Name = '%s (levantamiento)' % lv.get('name')
+        except Exception:
+            pass
+    if plan_vft is not None:
+        try:
+            vp = ViewPlan.Create(doc, plan_vft.Id, nl.Id)
+            try:
+                vp.Name = nl.Name
+            except Exception:
+                pass
+        except Exception:
+            pass
+    return nl, True
 
 # ---------- tipos de muro ----------
 basic_types = [t for t in FilteredElementCollector(doc).OfClass(WallType).ToElements() if t.Kind == WallKind.Basic]
@@ -140,89 +176,92 @@ def symbol_for(kind, w, h):
     sym_cache[key] = ns
     return ns
 
-def P3(x, y, z=0.0):
-    return XYZ(ft(x), ft(y), z0 + ft(z))
-
 # ---------- crear ----------
 TransactionManager.Instance.EnsureInTransaction(doc)
 
-walls = {}
-for w in data.get('walls', []):
-    try:
-        a = P3(w['start'][0], w['start'][1]); b = P3(w['end'][0], w['end'][1])
-        if a.DistanceTo(b) < 0.01:
-            continue
-        wt = wall_type(float(w['thickness']))
-        wall = Wall.Create(doc, Line.CreateBound(a, b), wt.Id, level.Id, ft(w['height']), 0.0, False, False)
-        c = wall.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
-        if c:
-            c.Set('%s (levantamiento)' % w['name'])
-        walls[w['id']] = (wall, a, b)
-    except Exception as ex:
-        report.append('Error en muro %s: %s' % (w.get('name'), ex))
-doc.Regenerate()
-report.append('Muros creados: %d' % len(walls))
+for lv in data['levels']:
+    level, created = level_for(lv)
+    z0 = level.Elevation
+    report.append('— %s → nivel Revit "%s"%s (NPT %+.2f m)' % (lv.get('name'), level.Name, ' (nuevo)' if created else '', float(lv.get('elevation', 0))))
+    if not lv.get('rectified', True):
+        report.append('  Aviso: este nivel no estaba rectificado; las medidas pueden no ser a escala.')
 
-n_inst = 0; n_open = 0
-for o in data.get('openings', []):
-    try:
-        if o['wall'] not in walls:
-            continue
-        wall, a, b = walls[o['wall']]
-        d = b.Subtract(a).Normalize()
-        c = a.Add(d.Multiply(ft(o['center'])))
-        width = float(o['width']); height = float(o['height']); sill = float(o.get('sill', 0) or 0)
-        if o['kind'] == 'opening':
-            p1 = c.Subtract(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill)))
-            p2 = c.Add(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill + height)))
-            doc.Create.NewOpening(wall, p1, p2)
-            n_open += 1
-            continue
-        kind = 'door' if o['kind'] == 'door' else 'window'
-        sym = symbol_for(kind, width, height)
-        if sym is None:
-            report.append('No hay familias de %s cargadas: se omitió %s' % ('puertas' if kind == 'door' else 'ventanas', o['name']))
-            continue
-        doc.Regenerate()
-        inst = doc.Create.NewFamilyInstance(XYZ(c.X, c.Y, z0), sym, wall, level, StructuralType.NonStructural)
-        if kind == 'window':
-            p = inst.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)
-            if p and not p.IsReadOnly:
-                p.Set(ft(sill))
-        else:
-            fl = int(o.get('flip', 0))
-            try:
-                if fl & 1: inst.flipHand()
-                if fl & 2: inst.flipFacing()
-            except Exception:
-                pass
-        m = inst.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
-        if m:
-            m.Set(o['name'])
-        n_inst += 1
-    except Exception as ex:
-        report.append('Error en vano %s: %s' % (o.get('name'), ex))
-report.append('Puertas y ventanas: %d · Vanos vacíos: %d' % (n_inst, n_open))
+    def P3(x, y, z=0.0):
+        return XYZ(ft(x), ft(y), z0 + ft(z))
 
-doc.Regenerate()
-n_rooms = 0
-for r in data.get('rooms', []):
-    try:
-        room = doc.Create.NewRoom(level, UV(ft(r['at'][0]), ft(r['at'][1])))
-        p = room.get_Parameter(BuiltInParameter.ROOM_NAME)
-        if p:
-            p.Set(r['name'])
-        if r.get('height'):
-            up = room.get_Parameter(BuiltInParameter.ROOM_UPPER_OFFSET)
-            if up:
-                up.Set(ft(r['height']))
-        n_rooms += 1
-    except Exception as ex:
-        report.append('Habitación "%s" no creada: %s' % (r.get('name'), ex))
-report.append('Habitaciones: %d' % n_rooms)
+    walls = {}
+    for w in lv.get('walls', []):
+        try:
+            a = P3(w['start'][0], w['start'][1]); b = P3(w['end'][0], w['end'][1])
+            if a.DistanceTo(b) < 0.01:
+                continue
+            wt = wall_type(float(w['thickness']))
+            wall = Wall.Create(doc, Line.CreateBound(a, b), wt.Id, level.Id, ft(w['height']), 0.0, False, False)
+            c = wall.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+            if c:
+                c.Set('%s %s (levantamiento)' % (lv.get('name'), w['name']))
+            walls[w['id']] = (wall, a, b)
+        except Exception as ex:
+            report.append('  Error en muro %s: %s' % (w.get('name'), ex))
+    doc.Regenerate()
+
+    n_inst = 0; n_open = 0
+    for o in lv.get('openings', []):
+        try:
+            if o['wall'] not in walls:
+                continue
+            wall, a, b = walls[o['wall']]
+            d = b.Subtract(a).Normalize()
+            c = a.Add(d.Multiply(ft(o['center'])))
+            width = float(o['width']); height = float(o['height']); sill = float(o.get('sill', 0) or 0)
+            if o['kind'] == 'opening':
+                p1 = c.Subtract(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill)))
+                p2 = c.Add(d.Multiply(ft(width / 2))).Add(XYZ(0, 0, ft(sill + height)))
+                doc.Create.NewOpening(wall, p1, p2)
+                n_open += 1
+                continue
+            kind = 'door' if o['kind'] == 'door' else 'window'
+            sym = symbol_for(kind, width, height)
+            if sym is None:
+                report.append('  No hay familias de %s cargadas: se omitió %s' % ('puertas' if kind == 'door' else 'ventanas', o['name']))
+                continue
+            doc.Regenerate()
+            inst = doc.Create.NewFamilyInstance(XYZ(c.X, c.Y, z0), sym, wall, level, StructuralType.NonStructural)
+            if kind == 'window':
+                p = inst.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)
+                if p and not p.IsReadOnly:
+                    p.Set(ft(sill))
+            else:
+                fl = int(o.get('flip', 0))
+                try:
+                    if fl & 1: inst.flipHand()
+                    if fl & 2: inst.flipFacing()
+                except Exception:
+                    pass
+            m = inst.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
+            if m:
+                m.Set(o['name'])
+            n_inst += 1
+        except Exception as ex:
+            report.append('  Error en vano %s: %s' % (o.get('name'), ex))
+
+    doc.Regenerate()
+    n_rooms = 0
+    for r in lv.get('rooms', []):
+        try:
+            room = doc.Create.NewRoom(level, UV(ft(r['at'][0]), ft(r['at'][1])))
+            p = room.get_Parameter(BuiltInParameter.ROOM_NAME)
+            if p:
+                p.Set(r['name'])
+            if r.get('height'):
+                up = room.get_Parameter(BuiltInParameter.ROOM_UPPER_OFFSET)
+                if up:
+                    up.Set(ft(r['height']))
+            n_rooms += 1
+        except Exception as ex:
+            report.append('  Habitación "%s" no creada: %s' % (r.get('name'), ex))
+    report.append('  Muros: %d · Puertas y ventanas: %d · Vanos: %d · Habitaciones: %d' % (len(walls), n_inst, n_open, n_rooms))
 
 TransactionManager.Instance.TransactionTaskDone()
 
-if not data.get('project', {}).get('rectified'):
-    report.insert(0, 'Aviso: la planta no estaba rectificada; las medidas pueden no ser a escala.')
 OUT = report
