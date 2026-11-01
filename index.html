@@ -95,6 +95,7 @@ button.ghost{background:transparent}
     <div class="hint" id="hint"></div>
     <div class="pill" id="count">0/0</div>
     <button class="fab" id="fitBtn">⤢ Encuadrar</button>
+    <button class="fab" id="orthoBtn" style="top:72px"></button>
     <div id="vanoBar" class="seg"><button data-op="door">Puerta</button><button data-op="win">Ventana</button><button data-op="gap">Vano vacío</button></div>
     <div class="props" id="props"></div>
   </div>
@@ -149,7 +150,7 @@ button.ghost{background:transparent}
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
 const STORE = 'levantamientos_v1';
-const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true};
+const DEF_SET = {tExt:0.20, tTab:0.10, ortho:true, auto:true, interior:true, square:true};
 const OPDEF = {door:0.80, win:1.20, gap:0.90};
 const OPNAME = {door:'Puerta', win:'Ventana', gap:'Vano vacío'};
 const OPPRE = {door:'P', win:'V', gap:'VN'};
@@ -179,7 +180,7 @@ function save(){ clearTimeout(saveT); saveT = setTimeout(saveNow, 250); }
 function saveNow(){ try{ localStorage.setItem(STORE, JSON.stringify(db)); }catch(e){ toast('No se pudo guardar en el teléfono'); } }
 function normalize(p){
   p.walls=p.walls||[]; p.dims=p.dims||[]; p.labels=p.labels||[]; p.openings=p.openings||[]; p.photos=p.photos||[]; p.log=p.log||[];
-  p.cnt=p.cnt||{}; p.fcnt=p.fcnt||0; p.seq=p.seq||1; return p;
+  p.cnt=p.cnt||{}; p.fcnt=p.fcnt||0; p.aligns=p.aligns||[]; p.seq=p.seq||1; return p;
 }
 function blankProject(name){
   return normalize({id:'p'+Date.now()+Math.floor(Math.random()*1000), name:name||'Levantamiento', address:'', owner:'', date:new Date().toISOString().slice(0,10)});
@@ -218,7 +219,7 @@ const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(
 function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='photo'?p.photos : p.labels; }
 function getEl(s){ if(!s) return null; return arrOf(s.kind).find(e=>e.id===s.id)||null; }
 function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
-function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
+function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
   fcnt:P.fcnt, phMeta:P.photos.map(f=>({id:f.id,x:f.x,y:f.y,name:f.name}))}); }
 function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); P.dirty=true; }
 function undo(){
@@ -280,8 +281,8 @@ function wallsAt(pt, p, except){
   const out=[];
   for(const x of (p||P).walls){
     if(x===except) continue; const L=len(x); if(L<1e-6) continue;
-    if(near(x.a,pt)||near(x.b,pt)){ out.push(x); continue; }
-    const r=segDist(pt.x,pt.y,x.a.x,x.a.y,x.b.x,x.b.y); if(r.d<0.03 && r.t>0.001 && r.t<0.999) out.push(x);
+    if(near(x.a,pt)||near(x.b,pt)||pt.on===x.id){ out.push(x); continue; }
+    const r=segDist(pt.x,pt.y,x.a.x,x.a.y,x.b.x,x.b.y); if(r.d<0.05 && r.t>0.001 && r.t<0.999) out.push(x);
   }
   return out;
 }
@@ -436,7 +437,8 @@ function draw(){
     else { ctx.strokeStyle= draft.kind==='ext'?'rgba(43,43,43,.6)':'rgba(122,127,135,.6)'; ctx.lineCap='square';
       ctx.lineWidth=Math.max(3,(draft.kind==='ext'?db.settings.tExt:db.settings.tTab)*view.s); }
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.setLineDash([]);
-    haloText(ctx, '≈'+len(draft).toFixed(2), (a.x+b.x)/2, (a.y+b.y)/2-18, 0, 'italic 12px system-ui', '#6b7280');
+    let deg=Math.round(-Math.atan2(draft.b.y-draft.a.y, draft.b.x-draft.a.x)*180/Math.PI); if(deg<0) deg+=360;
+    haloText(ctx, '≈'+len(draft).toFixed(2)+'  ·  '+deg+'°', (a.x+b.x)/2, (a.y+b.y)/2-18, 0, 'italic 12px system-ui', '#6b7280');
     for(const sp of [draft.sa, draft.snap]) if(sp && sp.kind!=='grid' && sp.kind!=='ortho'){ const q=w2s(sp); ctx.strokeStyle='#0f6fde'; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(q.x,q.y,9,0,7); ctx.stroke(); }
   }
   const c=countFields(); $('#count').textContent = `Medidos ${c.m}/${c.n}`;
@@ -450,7 +452,7 @@ function rayHits(f, ux, uy, exclW){
     if(exclW && exclW.has(w)) continue;
     const ex=w.b.x-w.a.x, ey=w.b.y-w.a.y, den=ux*ey-uy*ex; if(Math.abs(den)<1e-9) continue;
     const ax=w.a.x-f.x, ay=w.a.y-f.y; const t=(ax*ey-ay*ex)/den, u=(ax*uy-ay*ux)/den;
-    if(u>=-1e-6 && u<=1+1e-6 && t>0.05) hits.push(t);
+    if(u>=-1e-6 && u<=1+1e-6 && t>0.05) hits.push({t, w:w.id});
   }
   return hits;
 }
@@ -463,6 +465,19 @@ function nearestOnWall(sx, sy, R, exclW){
   }
   return best;
 }
+function ptOf(s){ const q={x:s.x, y:s.y}; if(s.w!=null && (s.kind==='on'||s.kind==='int')) q.on=s.w; return q; }
+function hostOf(q){ if(q.on==null) return null; const h=P.walls.find(w=>w.id===q.on); return h && len(h)>1e-6 ? h : null; }
+function reattach(skipHosts){
+  // los extremos amarrados a un muro (encuentros en T) se mantienen sobre él cuando ese muro se mueve
+  for(const w of P.walls) for(const q of [w.a,w.b]){
+    const h=hostOf(q); if(!h || h===w || (skipHosts && skipHosts.has(w))) continue;
+    const other = q===w.a ? w.b : w.a; const dx=q.x-other.x, dy=q.y-other.y;
+    const hx=h.b.x-h.a.x, hy=h.b.y-h.a.y, den=dx*hy-dy*hx; let nx, ny;
+    if(Math.abs(den)>1e-9){ const t=((h.a.x-other.x)*hy-(h.a.y-other.y)*hx)/den; nx=other.x+dx*t; ny=other.y+dy*t; }   // sigue su propia dirección hasta el eje del muro
+    else { const L2=hx*hx+hy*hy; const t=((q.x-h.a.x)*hx+(q.y-h.a.y)*hy)/L2; nx=h.a.x+hx*t; ny=h.a.y+hy*t; }
+    if(Math.abs(nx-q.x)>1e-9 || Math.abs(ny-q.y)>1e-9) moveCoincident(q, nx, ny);
+  }
+}
 function snapPoint(sx, sy, from, exclPts, exclW){
   const R=22; let best=null, bd=R;
   for(const p of endpoints(exclPts)){ const q=w2s(p); const d=Math.hypot(q.x-sx,q.y-sy); if(d<bd){ bd=d; best={x:p.x,y:p.y,kind:'end'}; } }
@@ -473,12 +488,12 @@ function snapPoint(sx, sy, from, exclPts, exclW){
     if(Math.abs(ang-sn)<0.15){
       const ux=Math.cos(sn), uy=Math.sin(sn); const proj=dx*ux+dy*uy;
       let bh=null, bdh=R/view.s;
-      for(const t of rayHits(from,ux,uy,exclW)){ if(Math.abs(t-proj)<bdh){ bdh=Math.abs(t-proj); bh=t; } }
-      if(bh!=null) return {x:from.x+ux*bh, y:from.y+uy*bh, kind:'int'};
+      for(const hh of rayHits(from,ux,uy,exclW)){ if(Math.abs(hh.t-proj)<bdh){ bdh=Math.abs(hh.t-proj); bh=hh; } }
+      if(bh!=null) return {x:from.x+ux*bh.t, y:from.y+uy*bh.t, kind:'int', w:bh.w};
       const L=Math.round(proj/0.05)*0.05; return {x:from.x+ux*L, y:from.y+uy*L, kind:'ortho'};
     }
   }
-  const on=nearestOnWall(sx,sy,16,exclW); if(on) return {x:on.x, y:on.y, kind:'on'};
+  const on=nearestOnWall(sx,sy,16,exclW); if(on) return {x:on.x, y:on.y, kind:'on', w:on.w.id};
   return {x:Math.round(w.x/0.05)*0.05, y:Math.round(w.y/0.05)*0.05, kind:'grid'};
 }
 
@@ -569,28 +584,80 @@ function renderProps(){
       <div class="row">${lm}
         <button id="pNext">Siguiente ›</button>
         ${e.len!=null?'<button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo</button>':''}
-        <button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>${btLine}`;
+        <button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
+      ${isWall?`<div class="row"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>
+        ${P.aligns.filter(al=>al.a===e.id||al.b===e.id).map(al=>{ const o=P.walls.find(x=>x.id===(al.a===e.id?al.b:al.a)); return o?`<button data-unal="${al.a}-${al.b}" title="Quitar alineación">≡ ${esc(o.name)} ✕</button>`:''; }).join('')}</div>`:''}${btLine}`;
     $('#pLen').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.len = v==null?null:r3(v); save(); renderProps(); draw(); };
     if(isWall){
       box.querySelectorAll('[data-ty]').forEach(b=>b.onclick=()=>{ const ty=b.dataset.ty; if(ty===e.type) return; pushUndo(); e.type=ty; e.t= ty==='ext'?db.settings.tExt:db.settings.tTab; e.name=nextName(ty==='ext'?'M':'T'); save(); renderProps(); draw(); });
       $('#pT').onchange=ev=>{ const v=num(ev.target.value); if(v>0){ pushUndo(); e.t=r3(v); save(); draw(); } };
     }
     if($('#pFit')) $('#pFit').onclick=()=>fitStroke(e);
+    if(isWall){
+      $('#pMove').onclick=()=>{ setTool('sel'); select({kind:'wall',id:e.id}); $('#hint').innerHTML='<b style="color:var(--acc)">Arrastra el muro para moverlo, o un punto azul para estirarlo o cambiar su ángulo.</b> Los muros unidos lo siguen.'; };
+      $('#pSplit').onclick=()=>startPending('split', e);
+      $('#pAlign').onclick=()=>startPending('align', e);
+      box.querySelectorAll('[data-unal]').forEach(b=>b.onclick=()=>{ const [a,c]=b.dataset.unal.split('-').map(Number); pushUndo(); P.aligns=P.aligns.filter(al=>!(al.a===a&&al.b===c)); save(); renderProps(); });
+    }
   }
   $('#pClose').onclick=()=>select(null);
   if($('#pNext')) $('#pNext').onclick=()=>{ const n=nextUnmeasured(e.id); if(n) select(n); else toast('Todo está medido ✔'); };
   if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
   $('#pDel').onclick=()=>{
     pushUndo(); const arr=arrOf(sel.kind); arr.splice(arr.indexOf(e),1);
-    if(sel.kind==='wall') P.openings=P.openings.filter(o=>o.wall!==e.id);
+    if(sel.kind==='wall'){ P.openings=P.openings.filter(o=>o.wall!==e.id); P.aligns=P.aligns.filter(al=>al.a!==e.id&&al.b!==e.id); }
     sel=null; save(); renderProps(); draw();
   };
+}
+let pending=null;   // acción que espera un toque: {type:'split'|'align', id}
+function startPending(type, w){
+  pending={type, id:w.id}; setTool('sel');
+  $('#hint').innerHTML = type==='split' ? `<b style="color:var(--acc)">Toca sobre ${esc(w.name)} el punto donde se divide.</b>` : `<b style="color:var(--acc)">Toca el muro que va en el mismo eje que ${esc(w.name)}.</b>`;
+  $('#hint').innerHTML += ' <span style="pointer-events:auto;text-decoration:underline" id="pendCancel">Cancelar</span>';
+  $('#pendCancel').onclick=()=>{ pending=null; setTool('sel'); };
+}
+function moveCoincident(o, nx, ny){ const ox=o.x, oy=o.y; for(const z of endpoints()) if(Math.abs(z.x-ox)<1e-6 && Math.abs(z.y-oy)<1e-6){ z.x=nx; z.y=ny; } }
+function handlePending(sx, sy){
+  const w=P.walls.find(x=>x.id===pending.id); const type=pending.type; pending=null; setTool('sel'); if(!w) return;
+  if(type==='split'){
+    const a=w2s(w.a), b=w2s(w.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y);
+    if(r.d>30){ toast('Toca sobre el muro '+w.name); return; }
+    splitWall(w, Math.max(0.05, Math.min(0.95, r.t))); return;
+  }
+  const h=hitTest(sx,sy); const o=h && h.kind==='wall' ? P.walls.find(x=>x.id===h.id) : null;
+  if(!o || o===w){ toast('Toca otro muro'); return; }
+  pushUndo(); P.aligns=P.aligns.filter(al=>!((al.a===w.id&&al.b===o.id)||(al.a===o.id&&al.b===w.id))); P.aligns.push({a:w.id, b:o.id});
+  // lleva el croquis del segundo muro sobre el eje del primero
+  const L=len(w), ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L;
+  for(const end of ['a','b']){
+    const q=o[end]; let t=(q.x-w.a.x)*ux+(q.y-w.a.y)*uy;
+    // si ese extremo topaba con otro muro, se mantiene sobre él (intersección de ejes)
+    const host=wallsAt(q).find(h=>h!==o && h!==w && !near(h.a,q,1e-6) && !near(h.b,q,1e-6));
+    if(host){ const hx=host.b.x-host.a.x, hy=host.b.y-host.a.y, den=ux*hy-uy*hx;
+      if(Math.abs(den)>1e-9) t=((host.a.x-w.a.x)*hy-(host.a.y-w.a.y)*hx)/den; }
+    moveCoincident(q, w.a.x+ux*t, w.a.y+uy*t);
+  }
+  reattach(); sel={kind:'wall', id:w.id}; save(); renderProps(); draw(); toast(`${o.name} queda en el mismo eje que ${w.name}`);
+}
+function splitWall(w, t){
+  pushUndo();
+  const m={x:w.a.x+(w.b.x-w.a.x)*t, y:w.a.y+(w.b.y-w.a.y)*t};
+  const w2={...w, id:P.seq++, name:nextName(w.type==='ext'?'M':'T'), a:{...m}, b:w.b, len:null};
+  for(const o of P.openings.filter(o=>o.wall===w.id)){
+    const g=opGeom(o); const tt=g? g.c/g.L : o.t;
+    if(tt>t){ o.wall=w2.id; o.t=(tt-t)/(1-t); if(o.ref!=='b') o.off=null; } else { o.t=tt/t; if(o.ref==='b') o.off=null; }
+  }
+  for(const q of endpoints()) if(q.on===w.id){ const L=len(w); const tq=((q.x-w.a.x)*(w.b.x-w.a.x)+(q.y-w.a.y)*(w.b.y-w.a.y))/(L*L); if(tq>t) q.on=w2.id; }
+  w.b={...m}; const had=w.len!=null; w.len=null;
+  P.walls.splice(P.walls.indexOf(w)+1, 0, w2);
+  sel={kind:'wall', id:w.id}; save(); renderProps(); draw();
+  toast(`${w.name} quedó dividido en ${w.name} y ${w2.name}`+(had?'. Mide los dos tramos.':''), 3000);
 }
 function fitStroke(e){
   const L=len(e); if(!e.len || L<1e-6) return; const T=e.t!=null ? axisTarget(e) : e.len; pushUndo();
   const ux=(e.b.x-e.a.x)/L, uy=(e.b.y-e.a.y)/L; const dx=e.a.x+ux*T-e.b.x, dy=e.a.y+uy*T-e.b.y; const ox=e.b.x, oy=e.b.y;
   for(const p of endpoints()) if(Math.abs(p.x-ox)<1e-6 && Math.abs(p.y-oy)<1e-6){ p.x+=dx; p.y+=dy; }
-  save(); draw(); toast('Trazo ajustado a '+fmt(e.len)+' m');
+  reattach(); save(); draw(); toast('Trazo ajustado a '+fmt(e.len)+' m');
 }
 
 /* ============ Rectificar planta con las medidas ============ */
@@ -622,8 +689,32 @@ function isLocator(d, p){
 function diagChecks(p){
   p=p||P; return p.dims.filter(d=>d.len!=null && !isLocator(d,p)).map(d=>{ const a=cornerPt(d.a,d.b,p), b=cornerPt(d.b,d.a,p); const got=Math.hypot(b.x-a.x,b.y-a.y); return {d, got, delta:got-d.len}; });
 }
+function squareDirs(walls){
+  // orientación dominante (módulo 90°) ponderada por largo; endereza ángulos casi rectos
+  // se elige el ángulo (módulo 90°) que más largo de muros comparte; un muro chueco no arrastra al resto
+  const D=Math.PI/180, m90=a=>{ let r=a%(Math.PI/2); if(r<0) r+=Math.PI/2; return r; };
+  const dif=(a,b)=>{ let d=Math.abs(m90(a)-m90(b)); return Math.min(d, Math.PI/2-d); };
+  const angs=walls.map(w=>({a:Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x), L:len(w)}));
+  let best=null, bs=-1; for(const c of angs){ const sc=angs.reduce((s2,o)=>s2+(dif(o.a,c.a)<0.5*D?o.L:0),0); if(sc>bs){ bs=sc; best=c.a; } }
+  let sx=0, sy=0; for(const o of angs) if(dif(o.a,best)<0.5*D){ sx+=o.L*Math.cos(4*o.a); sy+=o.L*Math.sin(4*o.a); }
+  const th=Math.atan2(sy,sx)/4, dir={}; let fixed=0;
+  for(const w of walls){
+    let a=Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x); const rel=a-th;
+    if(db.settings.square!==false){
+      const k90=Math.round(rel/(Math.PI/2)), d90=Math.abs(rel-k90*Math.PI/2);
+      const k45=Math.round(rel/(Math.PI/4)), d45=Math.abs(rel-k45*Math.PI/4);
+      if(d90<6*D){ if(d90>0.05*D) fixed++; a=th+k90*Math.PI/2; }
+      else if(d45<3*D){ if(d45>0.05*D) fixed++; a=th+k45*Math.PI/4; }
+    }
+    dir[w.id]={ux:Math.cos(a), uy:Math.sin(a)};
+  }
+  // muros alineados en un mismo eje: misma dirección
+  for(const al of P.aligns){ if(dir[al.a] && dir[al.b]){ const A=dir[al.a], B=dir[al.b]; const sg=Math.sign(A.ux*B.ux+A.uy*B.uy)||1; dir[al.b]={ux:A.ux*sg, uy:A.uy*sg}; } }
+  return {dir, fixed};
+}
 function rectify(){
   const walls=P.walls.filter(w=>len(w)>1e-6); if(!walls.length) return null;
+  const SQ=squareDirs(walls), dir=SQ.dir;
   const pts=[]; for(const w of P.walls) pts.push(w.a,w.b); for(const d of P.dims) pts.push(d.a,d.b);
   const nodes=[], idx=new Map();
   for(const q of pts){ let k=nodes.findIndex(n=>near(n,q)); if(k<0){ k=nodes.length; nodes.push({x:q.x,y:q.y}); } idx.set(q,k); }
@@ -632,16 +723,17 @@ function rectify(){
   const info=[];
   for(const w of walls){
     const i=idx.get(w.a), j=idx.get(w.b); if(i===j) continue;
-    const L=len(w), ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L, nx=-uy, ny=ux;
-    row([[2*j,nx],[2*j+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);                 // conserva la dirección del croquis
+    const {ux,uy}=dir[w.id], nx=-uy, ny=ux;
+    row([[2*j,nx],[2*j+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);                 // dirección del croquis (enderezada)
     const target=axisTarget(w);
     row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], target, w.len!=null?1000:0.05); // largo medido (o el del croquis)
     info.push({w, target, faces:target-(w.len??target)});
   }
+  const hostIds=nodes.map(()=>new Set()); for(const q of pts) if(q.on!=null) hostIds[idx.get(q)].add(q.on);
   for(let k=0;k<N;k++){ const q=nodes[k];
     for(const w of walls){ const i=idx.get(w.a), j=idx.get(w.b); if(k===i||k===j) continue;
       const r=segDist(q.x,q.y,w.a.x,w.a.y,w.b.x,w.b.y);
-      if(r.d<0.03 && r.t>0.001 && r.t<0.999){ const L=len(w), nx=-(w.b.y-w.a.y)/L, ny=(w.b.x-w.a.x)/L; row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);
+      if(hostIds[k].has(w.id) || (r.d<0.05 && r.t>0.001 && r.t<0.999)){ const nx=-dir[w.id].uy, ny=dir[w.id].ux; row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);
         // sin otra medida, el encuentro conserva su proporción a lo largo del muro
         row([[2*k,1],[2*i,-(1-r.t)],[2*j,-r.t]], 0, 0.05); row([[2*k+1,1],[2*i+1,-(1-r.t)],[2*j+1,-r.t]], 0, 0.05); } } }
   // cotas libres paralelas a un muro (p. ej. ubicación de un tabique) también se usan como medida
@@ -652,6 +744,12 @@ function rectify(){
     const ca=cornerPt(d.a,d.b), cb=cornerPt(d.b,d.a); const corr=((cb.x-d.b.x)-(ca.x-d.a.x))*ux+((cb.y-d.b.y)-(ca.y-d.a.y))*uy;
     row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], d.len-corr, 1000);
   }
+  // muros en el mismo eje estructural
+  for(const al of P.aligns){
+    const A=P.walls.find(w=>w.id===al.a), B=P.walls.find(w=>w.id===al.b); if(!A||!B||!dir[A.id]) continue;
+    const nx=-dir[A.id].uy, ny=dir[A.id].ux, i=idx.get(A.a);
+    for(const q of [B.a,B.b]){ const k=idx.get(q); if(k!==i) row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4); }
+  }
   for(let k=0;k<N;k++){ row([[2*k,1]],nodes[k].x,0.001); row([[2*k+1,1]],nodes[k].y,0.001); }
   const x=solveLin(M,v); if(!x) return null;
   pushUndo();
@@ -661,7 +759,7 @@ function rectify(){
   for(const q of pts){ const k=idx.get(q); q.x=x[2*k]; q.y=x[2*k+1]; }
   const bad=info.filter(it=>it.w.len!=null && Math.abs(len(it.w)-it.target)>0.02).map(it=>({w:it.w, got:len(it.w)-it.faces}));
   P.dirty=false; P.rectified=true; save(); fitView(); renderProps(); draw();
-  return {bad, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
+  return {bad, fixed:SQ.fixed, aligns:P.aligns.length, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
 }
 function deltaTxt(dl){ const cm=Math.round(dl*100); return (cm>0?'+':'')+cm+' cm'; }
 function showRectify(r){
@@ -671,6 +769,8 @@ function showRectify(r){
   const bad=r.bad.length ? `<h3>Medidas que no calzan</h3>`+r.bad.map(b=>`<p>⚠️ <b>${esc(b.w.name)}</b>: medida ${fmt(b.w.len)}, el dibujo cerró con ${fmt(b.got)} (${deltaTxt(b.got-b.w.len)}). Revisa esa medida o el trazo.</p>`).join('') : '';
   openSheet(`<h2>📐 Planta rectificada</h2>
     <p>Se usaron <b>${r.measured}</b> medidas${db.settings.interior!==false?' (cara a cara, descontando el espesor de los muros)':''}. La planta ahora está a escala real.</p>
+    ${r.fixed?`<p>📐 ${r.fixed} muro(s) casi a escuadra se enderezaron.</p>`:''}
+    ${r.aligns?`<p>≡ ${r.aligns} alineación(es) de eje respetadas.</p>`:''}
     ${r.unmeasured?`<p>⚠️ ${r.unmeasured} muro(s) sin medir conservaron el largo del croquis.</p>`:''}
     ${bad}${diag}
     <div class="actions"><button id="rUndo">Deshacer</button><button class="pri" id="dOk">Listo</button></div>`);
@@ -785,6 +885,8 @@ $$('.tool[data-tool]').forEach(b=>b.onclick=()=>setTool(b.dataset.tool));
 function setOpKind(k){ opKind=k; $$('#vanoBar [data-op]').forEach(b=>b.classList.toggle('on', b.dataset.op===k)); }
 $$('#vanoBar [data-op]').forEach(b=>b.onclick=()=>setOpKind(b.dataset.op));
 $('#undoBtn').onclick=undo; $('#fitBtn').onclick=fitView;
+function orthoLabel(){ const b=$('#orthoBtn'); b.textContent = db.settings.ortho ? '⟂ Escuadra: Sí' : '∠ Escuadra: No'; b.style.background = db.settings.ortho ? '#fff' : '#fff4e5'; }
+$('#orthoBtn').onclick=()=>{ db.settings.ortho=!db.settings.ortho; save(); orthoLabel(); toast(db.settings.ortho ? 'Los muros se enganchan a 0°/45°/90°' : 'Dibujo libre: puedes hacer muros en cualquier ángulo'); };
 
 /* ============ Interacción táctil del plano ============ */
 const pts=new Map(); let gest=null;
@@ -798,7 +900,7 @@ cv.addEventListener('pointerdown', e=>{
   if(pts.size>2) return;
   gest={type:'one', start:p, moved:false, v0:{...view}};
   if(tool==='ext'||tool==='tab'||tool==='dim'){
-    const s=snapPoint(p.x,p.y,null); draft={kind:tool, a:{x:s.x,y:s.y}, b:{x:s.x,y:s.y}, sa:s, snap:null};
+    const s=snapPoint(p.x,p.y,null); draft={kind:tool, a:ptOf(s), b:{x:s.x,y:s.y}, sa:s, snap:null};
   } else if(tool==='sel'){
     const el=getEl(sel);
     if(el && el.a){
@@ -806,6 +908,12 @@ cv.addEventListener('pointerdown', e=>{
         const o=el[end]; const moving=endpoints().filter(z=>Math.abs(z.x-o.x)<1e-6&&Math.abs(z.y-o.y)<1e-6);
         const exclW=new Set(P.walls.filter(w=>moving.includes(w.a)||moving.includes(w.b)));
         pushUndo(); gest={type:'drag', moving, exclW, start:p, moved:false}; return; } }
+    }
+    if(el && sel.kind==='wall'){
+      const a=w2s(el.a), b=w2s(el.b);
+      if(segDist(p.x,p.y,a.x,a.y,b.x,b.y).d<Math.max(22, el.t*view.s/2+10)){
+        const moving=endpoints().filter(z=>near(z,el.a,1e-6)||near(z,el.b,1e-6));
+        pushUndo(); gest={type:'move', moving:moving.map(z=>({z, x:z.x, y:z.y})), start:p, moved:false}; return; }
     }
     if(el && sel.kind==='open'){
       const g=opGeom(el); if(g){ const a=w2s(g.p1), b=w2s(g.p2); if(segDist(p.x,p.y,a.x,a.y,b.x,b.y).d<26){
@@ -825,10 +933,15 @@ cv.addEventListener('pointermove', e=>{
   }
   if(gest.type==='one'){
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>8) gest.moved=true;
-    if(draft){ const s=snapPoint(p.x,p.y,draft.a); draft.b={x:s.x,y:s.y}; draft.snap=s; draw(); }
+    if(draft){ const s=snapPoint(p.x,p.y,draft.a); draft.b=ptOf(s); draft.snap=s; draw(); }
     else if((tool==='sel'||tool==='vano'||tool==='foto'||tool==='txt') && gest.moved){ view.ox=gest.v0.ox+p.x-gest.start.x; view.oy=gest.v0.oy+p.y-gest.start.y; draw(); }
   }
-  if(gest.type==='drag'){ gest.moved=true; const s=snapPoint(p.x,p.y,null,gest.moving,gest.exclW); for(const z of gest.moving){ z.x=s.x; z.y=s.y; } draw(); }
+  if(gest.type==='drag'){ gest.moved=true; const s=snapPoint(p.x,p.y,null,gest.moving,gest.exclW); for(const z of gest.moving){ z.x=s.x; z.y=s.y; if(s.w!=null && !gest.exclW.has(P.walls.find(w=>w.id===s.w))) z.on=s.w; else delete z.on; } reattach(gest.exclW); draw(); }
+  if(gest.type==='move'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
+    let dx=(p.x-gest.start.x)/view.s, dy=(p.y-gest.start.y)/view.s; dx=Math.round(dx/0.01)*0.01; dy=Math.round(dy/0.01)*0.01;
+    for(const m of gest.moving){ m.z.x=m.x+dx; m.z.y=m.y+dy; } reattach(); draw(); return;
+  }
   if(gest.type==='slide'){
     gest.moved=true; const w=wallOf(gest.op); if(!w) return; const a=w2s(w.a), b=w2s(w.b);
     gest.op.t=segDist(p.x,p.y,a.x,a.y,b.x,b.y).t; draw();
@@ -840,7 +953,9 @@ function endPointer(e){
   if(gest.type==='pinch'){ if(pts.size===0) gest=null; else { const p=[...pts.values()][0]; gest={type:'one',start:p,moved:true,v0:{...view}}; draft=null; } return; }
   if(pts.size>0) return;
   const g=gest; gest=null;
-  if(g.type==='drag'||g.type==='slide'){ if(!g.moved) undoStack.pop(); save(); draw(); return; }
+  if(g.type==='drag'||g.type==='slide'||g.type==='move'){
+    if(!g.moved){ undoStack.pop(); if(pending){ handlePending(g.start.x,g.start.y); return; } }
+    save(); draw(); return; }
   if(draft){
     const d=draft; draft=null;
     if(!g.moved || len(d)*view.s<12 || len(d)<0.05){ select(hitTest(g.start.x,g.start.y)); return; }
@@ -850,6 +965,7 @@ function endPointer(e){
     save(); renderProps(); ensureVisible(); draw(); return;
   }
   if(g.moved) return;
+  if(pending){ handlePending(g.start.x,g.start.y); return; }
   const h=hitTest(g.start.x,g.start.y);
   if(tool==='vano'){
     if(h && (h.kind==='open'||h.kind==='photo')){ select(h); return; }
@@ -1330,12 +1446,15 @@ function openMenu(){
     <div class="f">Espesor tabique (m)<input id="sTab" type="number" step="0.01" inputmode="decimal" value="${s.tTab}"></div></div>
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
+    <label class="tg">Rectificar: enderezar ángulos casi rectos (±6°)<input type="checkbox" id="sSq" ${s.square!==false?'checked':''}></label>
     <label class="tg">Medidas interiores, cara a cara<input type="checkbox" id="sInt" ${s.interior!==false?'checked':''}></label>
     <h3>Cómo se usa</h3>
     <p>1. Dibuja los <b>muros perimetrales</b> y luego los <b>tabiques</b>, igual que en la libreta.</p>
     <p>2. Con <b>Vano</b> elige Puerta, Ventana o Vano vacío y toca el muro. El láser llena primero el <b>ancho</b> y luego la <b>distancia a la esquina</b> marcada con el punto azul.</p>
     <p>3. Conecta la huincha con <b>Láser</b>: elige un elemento y mide; la cota se asigna sola.</p>
     <p>Para ubicar un tabique, dibuja una <b>Cota</b> recta desde la cara del muro hasta el tabique y mídela. Las diagonales sirven de control.</p>
+    <p>Para corregir un muro, elígelo y usa <b>✥ Corregir</b> (moverlo o estirarlo), <b>✂ Dividir</b> o <b>≡ Mismo eje que…</b> para muros que van alineados aunque estén lejos.</p>
+    <p>El botón <b>⟂ Escuadra</b> del plano activa o desactiva el enganche a 0°/45°/90° para dibujar muros en ángulo.</p>
     <p>Al terminar, usa <b>📐 Rectificar planta</b>: el dibujo pasa a escala real con tus medidas.</p>
     <p>4. Con <b>Foto</b> toca en el plano desde dónde fotografías; sobre la foto dibuja flechas de cota y notas.</p>
     <p>5. Exporta el <b>Informe PDF</b> (datos, planta a escala, tabla de medidas y fotos), o DXF por capas, PNG, CSV y fotos en JPG.</p>
@@ -1357,7 +1476,8 @@ function openMenu(){
   $('#mOwner').onchange=e=>{ P.owner=e.target.value.trim(); save(); updateHeader(); };
   $('#sExt').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tExt=v; save(); } };
   $('#sTab').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tTab=v; save(); } };
-  $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); };
+  $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); orthoLabel(); };
+  $('#sSq').onchange=e=>{ db.settings.square=e.target.checked; P.dirty=true; save(); };
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
   $('#sInt').onchange=e=>{ db.settings.interior=e.target.checked; P.dirty=true; save(); draw(); };
   $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
@@ -1402,7 +1522,7 @@ load();
 window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
-setOpKind('door'); setTool('ext');
+setOpKind('door'); setTool('ext'); orthoLabel();
 window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, rectify, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
