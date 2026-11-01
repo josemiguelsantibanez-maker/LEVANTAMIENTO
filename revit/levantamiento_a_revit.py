@@ -54,6 +54,9 @@ def family_name(sym):
         p = sym.get_Parameter(BuiltInParameter.SYMBOL_FAMILY_NAME_PARAM)
         return p.AsString() if p else ''
 
+import os
+if not path or not os.path.isfile(str(path)):
+    raise Exception('Primero elige el archivo _revit.json en el nodo 1) con "Examinar..." y vuelve a ejecutar.')
 with open(path, encoding='utf-8') as f:
     data = json.load(f)
 
