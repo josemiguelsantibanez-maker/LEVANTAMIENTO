@@ -218,11 +218,14 @@ const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(
 function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='photo'?p.photos : p.labels; }
 function getEl(s){ if(!s) return null; return arrOf(s.kind).find(e=>e.id===s.id)||null; }
 function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
-function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cnt:P.cnt, seq:P.seq}); }
-function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); }
+function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
+  fcnt:P.fcnt, phMeta:P.photos.map(f=>({id:f.id,x:f.x,y:f.y,name:f.name}))}); }
+function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); P.dirty=true; }
 function undo(){
   const s = undoStack.pop(); if(!s){ toast('Nada que deshacer'); return; }
-  Object.assign(P, JSON.parse(s)); sel=null; save(); renderProps(); draw();
+  const d=JSON.parse(s); const meta=d.phMeta||[]; delete d.phMeta;
+  Object.assign(P, d); for(const m of meta){ const f=P.photos.find(x=>x.id===m.id); if(f){ f.x=m.x; f.y=m.y; f.name=m.name; } }
+  sel=null; save(); renderProps(); draw();
 }
 function vibrate(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
 function nextName(prefix){ P.cnt[prefix]=(P.cnt[prefix]||0)+1; return prefix+P.cnt[prefix]; }
@@ -270,13 +273,31 @@ function fitView(){
 }
 
 /* ============ Geometría de vanos ============ */
+/* caras de muros que llegan a un punto (para medidas cara a cara) */
+const near=(a,b,tol)=>Math.abs(a.x-b.x)<(tol||1e-4) && Math.abs(a.y-b.y)<(tol||1e-4);
+function wallsAt(pt, p, except){
+  // muros cuyo extremo coincide con pt, o que pasan por pt (encuentro en T)
+  const out=[];
+  for(const x of (p||P).walls){
+    if(x===except) continue; const L=len(x); if(L<1e-6) continue;
+    if(near(x.a,pt)||near(x.b,pt)){ out.push(x); continue; }
+    const r=segDist(pt.x,pt.y,x.a.x,x.a.y,x.b.x,x.b.y); if(r.d<0.03 && r.t>0.001 && r.t<0.999) out.push(x);
+  }
+  return out;
+}
+function faceAt(w, pt, p){
+  if(db.settings.interior===false) return 0;
+  const L=len(w); if(L<1e-6) return 0; const ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L; let f=0;
+  for(const x of wallsAt(pt,p,w)){ const Lx=len(x); const d=Math.abs(ux*(x.b.x-x.a.x)/Lx+uy*(x.b.y-x.a.y)/Lx); if(d<0.9) f=Math.max(f,x.t/2); }
+  return f;
+}
+function axisTarget(w, p){ return w.len==null ? len(w) : w.len + faceAt(w,w.a,p) + faceAt(w,w.b,p); }
 function opGeom(o, p){
   const w=wallOf(o,p); if(!w) return null; const L=len(w); if(L<1e-6) return null;
-  const k = w.len ? L/w.len : 1;                         // trazo por metro real
+  const k = w.len ? L/axisTarget(w,p) : 1;               // trazo por metro real
   const sw = Math.min((o.len||OPDEF[o.kind])*k, L*0.98);
   // la distancia se mide desde la cara interior del muro que llega a esa esquina
-  const rp = o.ref==='b' ? w.b : w.a; let face=0;
-  for(const x of (p||P).walls){ if(x===w) continue; for(const q of [x.a,x.b]) if(Math.abs(q.x-rp.x)<1e-6 && Math.abs(q.y-rp.y)<1e-6) face=Math.max(face, x.t/2); }
+  const rp = o.ref==='b' ? w.b : w.a; const face=faceAt(w, rp, p)*k;
   let c = (o.off!=null) ? (o.ref==='b' ? L-(face+o.off*k+sw/2) : face+o.off*k+sw/2) : o.t*L;
   c = Math.max(sw/2, Math.min(L-sw/2, c));
   const ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L;
@@ -356,11 +377,19 @@ function renderPlan(c, v, o){
       c.fillStyle='#0f6fde'; c.beginPath(); c.arc(r.x,r.y,5*k,0,7); c.fill();
     }
   }
-  // cotas de muros
+  // cotas de muros (en el tramo libre más largo, para no chocar con vanos)
+  const gapsOf={}; for(const op of p.openings){ const g=opGeom(op,p); if(g) (gapsOf[op.wall]=gapsOf[op.wall]||[]).push([g.c-g.sw/2-0.15, g.c+g.sw/2+0.15]); }
   for(const w of p.walls){
     const a=S(w.a), b=S(w.b); const ang=Math.atan2(b.y-a.y,b.x-a.x), ua=upright(ang);
     const nx=-Math.sin(ua), ny=Math.cos(ua); const off=(wpx(w)/2+10*k);
-    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2; const measured = w.len!=null;
+    const Lw=len(w); let tm=0.5;
+    if(gapsOf[w.id] && Lw>1e-6){
+      const gs=gapsOf[w.id].sort((x,y)=>x[0]-y[0]); let s0=0, best=[0,0];
+      for(const [g0,g1] of gs){ if(g0-s0>best[1]-best[0]) best=[s0,g0]; s0=Math.max(s0,g1); }
+      if(Lw-s0>best[1]-best[0]) best=[s0,Lw];
+      if(best[1]-best[0]>0.05) tm=(best[0]+best[1])/2/Lw;
+    }
+    const mx=a.x+(b.x-a.x)*tm, my=a.y+(b.y-a.y)*tm; const measured = w.len!=null;
     haloText(c, measured?fmt(w.len):'?', mx-nx*off, my-ny*off, ua, `700 ${13*k}px system-ui`, measured?'#15803d':'#d97706');
     if(o.names && v.s>22) haloText(c, w.name||'', mx-nx*(off+14*k), my-ny*(off+14*k), ua, `${10*k}px system-ui`, '#9ca3af');
   }
@@ -558,10 +587,105 @@ function renderProps(){
   };
 }
 function fitStroke(e){
-  const L=len(e); if(!e.len || L<1e-6) return; pushUndo();
-  const ux=(e.b.x-e.a.x)/L, uy=(e.b.y-e.a.y)/L; const dx=e.a.x+ux*e.len-e.b.x, dy=e.a.y+uy*e.len-e.b.y; const ox=e.b.x, oy=e.b.y;
+  const L=len(e); if(!e.len || L<1e-6) return; const T=e.t!=null ? axisTarget(e) : e.len; pushUndo();
+  const ux=(e.b.x-e.a.x)/L, uy=(e.b.y-e.a.y)/L; const dx=e.a.x+ux*T-e.b.x, dy=e.a.y+uy*T-e.b.y; const ox=e.b.x, oy=e.b.y;
   for(const p of endpoints()) if(Math.abs(p.x-ox)<1e-6 && Math.abs(p.y-oy)<1e-6){ p.x+=dx; p.y+=dy; }
   save(); draw(); toast('Trazo ajustado a '+fmt(e.len)+' m');
+}
+
+/* ============ Rectificar planta con las medidas ============ */
+function solveLin(M, v){
+  const n=v.length; const A=M.map((r,i)=>{ const x=Array.from(r); x.push(v[i]); return x; });
+  for(let c=0;c<n;c++){
+    let piv=c; for(let r=c+1;r<n;r++) if(Math.abs(A[r][c])>Math.abs(A[piv][c])) piv=r;
+    if(Math.abs(A[piv][c])<1e-12) return null; [A[c],A[piv]]=[A[piv],A[c]];
+    for(let r=c+1;r<n;r++){ const f=A[r][c]/A[c][c]; if(f===0) continue; for(let k=c;k<=n;k++) A[r][k]-=f*A[c][k]; }
+  }
+  const x=new Float64Array(n); for(let r=n-1;r>=0;r--){ let sum=A[r][n]; for(let k=r+1;k<n;k++) sum-=A[r][k]*x[k]; x[r]=sum/A[r][r]; } return x;
+}
+function cornerPt(pt, toward, p){
+  // punto interior (cara) de una esquina o encuentro, hacia el otro extremo de la cota
+  if(db.settings.interior===false) return {x:pt.x, y:pt.y};
+  const dirs=[]; let ox=0, oy=0;
+  for(const w of wallsAt(pt,p)){
+    const L=len(w); const nx=-(w.b.y-w.a.y)/L, ny=(w.b.x-w.a.x)/L;
+    if(dirs.some(d=>Math.abs(d.nx*nx+d.ny*ny)>0.9)) continue; dirs.push({nx,ny});
+    const sg=Math.sign((toward.x-pt.x)*nx+(toward.y-pt.y)*ny)||1; ox+=nx*sg*w.t/2; oy+=ny*sg*w.t/2;
+  }
+  return {x:pt.x+ox, y:pt.y+oy};
+}
+function isLocator(d, p){
+  // cota recta paralela a un muro: se usa como medida para ubicar (no como control)
+  const L=len(d); if(L<1e-6) return false; const ux=(d.b.x-d.a.x)/L, uy=(d.b.y-d.a.y)/L;
+  return (p||P).walls.some(w=>{ const Lw=len(w); return Lw>1e-6 && Math.abs(ux*(w.b.x-w.a.x)/Lw+uy*(w.b.y-w.a.y)/Lw)>0.996; });
+}
+function diagChecks(p){
+  p=p||P; return p.dims.filter(d=>d.len!=null && !isLocator(d,p)).map(d=>{ const a=cornerPt(d.a,d.b,p), b=cornerPt(d.b,d.a,p); const got=Math.hypot(b.x-a.x,b.y-a.y); return {d, got, delta:got-d.len}; });
+}
+function rectify(){
+  const walls=P.walls.filter(w=>len(w)>1e-6); if(!walls.length) return null;
+  const pts=[]; for(const w of P.walls) pts.push(w.a,w.b); for(const d of P.dims) pts.push(d.a,d.b);
+  const nodes=[], idx=new Map();
+  for(const q of pts){ let k=nodes.findIndex(n=>near(n,q)); if(k<0){ k=nodes.length; nodes.push({x:q.x,y:q.y}); } idx.set(q,k); }
+  const N=nodes.length, n=2*N; const M=Array.from({length:n},()=>new Float64Array(n)), v=new Float64Array(n);
+  const row=(co,rhs,w)=>{ for(const [i,ci] of co){ v[i]+=w*ci*rhs; for(const [j,cj] of co) M[i][j]+=w*ci*cj; } };
+  const info=[];
+  for(const w of walls){
+    const i=idx.get(w.a), j=idx.get(w.b); if(i===j) continue;
+    const L=len(w), ux=(w.b.x-w.a.x)/L, uy=(w.b.y-w.a.y)/L, nx=-uy, ny=ux;
+    row([[2*j,nx],[2*j+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);                 // conserva la dirección del croquis
+    const target=axisTarget(w);
+    row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], target, w.len!=null?1000:0.05); // largo medido (o el del croquis)
+    info.push({w, target, faces:target-(w.len??target)});
+  }
+  for(let k=0;k<N;k++){ const q=nodes[k];
+    for(const w of walls){ const i=idx.get(w.a), j=idx.get(w.b); if(k===i||k===j) continue;
+      const r=segDist(q.x,q.y,w.a.x,w.a.y,w.b.x,w.b.y);
+      if(r.d<0.03 && r.t>0.001 && r.t<0.999){ const L=len(w), nx=-(w.b.y-w.a.y)/L, ny=(w.b.x-w.a.x)/L; row([[2*k,nx],[2*k+1,ny],[2*i,-nx],[2*i+1,-ny]], 0, 1e4);
+        // sin otra medida, el encuentro conserva su proporción a lo largo del muro
+        row([[2*k,1],[2*i,-(1-r.t)],[2*j,-r.t]], 0, 0.05); row([[2*k+1,1],[2*i+1,-(1-r.t)],[2*j+1,-r.t]], 0, 0.05); } } }
+  // cotas libres paralelas a un muro (p. ej. ubicación de un tabique) también se usan como medida
+  for(const d of P.dims){
+    if(d.len==null) continue; const L=len(d); if(L<1e-6) continue; const ux=(d.b.x-d.a.x)/L, uy=(d.b.y-d.a.y)/L;
+    if(!isLocator(d)) continue;
+    const i=idx.get(d.a), j=idx.get(d.b); if(i===j) continue;
+    const ca=cornerPt(d.a,d.b), cb=cornerPt(d.b,d.a); const corr=((cb.x-d.b.x)-(ca.x-d.a.x))*ux+((cb.y-d.b.y)-(ca.y-d.a.y))*uy;
+    row([[2*j,ux],[2*j+1,uy],[2*i,-ux],[2*i+1,-uy]], d.len-corr, 1000);
+  }
+  for(let k=0;k<N;k++){ row([[2*k,1]],nodes[k].x,0.001); row([[2*k+1,1]],nodes[k].y,0.001); }
+  const x=solveLin(M,v); if(!x) return null;
+  pushUndo();
+  const disp=nodes.map((q,k)=>({x:q.x, y:q.y, dx:x[2*k]-q.x, dy:x[2*k+1]-q.y}));
+  const move=o=>{ let sw=0,sx=0,sy=0; for(const d of disp){ const wt=1/((d.x-o.x)**2+(d.y-o.y)**2+1e-6); sw+=wt; sx+=wt*d.dx; sy+=wt*d.dy; } o.x+=sx/sw; o.y+=sy/sw; };
+  P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); });
+  for(const q of pts){ const k=idx.get(q); q.x=x[2*k]; q.y=x[2*k+1]; }
+  const bad=info.filter(it=>it.w.len!=null && Math.abs(len(it.w)-it.target)>0.02).map(it=>({w:it.w, got:len(it.w)-it.faces}));
+  P.dirty=false; P.rectified=true; save(); fitView(); renderProps(); draw();
+  return {bad, diag:diagChecks(), unmeasured:walls.filter(w=>w.len==null).length, measured:walls.filter(w=>w.len!=null).length};
+}
+function deltaTxt(dl){ const cm=Math.round(dl*100); return (cm>0?'+':'')+cm+' cm'; }
+function showRectify(r){
+  if(!r){ toast('No hay muros para rectificar'); return; }
+  const diag=r.diag.length ? `<h3>Control con diagonales</h3>`+r.diag.map(c=>`<p>${Math.abs(c.delta)<=0.03?'✅':'⚠️'} <b>${esc(c.d.name)}</b>: medida ${fmt(c.d.len)} · planta ${fmt(c.got)} → <b>${deltaTxt(c.delta)}</b></p>`).join('')
+    +`<p style="color:var(--muted);font-size:13px">Hasta ±3 cm es normal. Más que eso indica un recinto fuera de escuadra o una medida a revisar.</p>` : '<p style="color:var(--muted)">Tip: mide una o dos diagonales con «Cota» para controlar la escuadra.</p>';
+  const bad=r.bad.length ? `<h3>Medidas que no calzan</h3>`+r.bad.map(b=>`<p>⚠️ <b>${esc(b.w.name)}</b>: medida ${fmt(b.w.len)}, el dibujo cerró con ${fmt(b.got)} (${deltaTxt(b.got-b.w.len)}). Revisa esa medida o el trazo.</p>`).join('') : '';
+  openSheet(`<h2>📐 Planta rectificada</h2>
+    <p>Se usaron <b>${r.measured}</b> medidas${db.settings.interior!==false?' (cara a cara, descontando el espesor de los muros)':''}. La planta ahora está a escala real.</p>
+    ${r.unmeasured?`<p>⚠️ ${r.unmeasured} muro(s) sin medir conservaron el largo del croquis.</p>`:''}
+    ${bad}${diag}
+    <div class="actions"><button id="rUndo">Deshacer</button><button class="pri" id="dOk">Listo</button></div>`);
+  $('#rUndo').onclick=()=>{ undo(); closeSheet(); toast('Rectificación deshecha'); };
+  $('#dOk').onclick=closeSheet;
+}
+function renumber(){
+  const prev=P.dirty; pushUndo(); P.cnt={};
+  const byId=(a,b)=>a.id-b.id;
+  for(const w of [...P.walls].sort(byId)) w.name=nextName(w.type==='ext'?'M':'T');
+  for(const d of [...P.dims].sort(byId)) d.name=nextName('C');
+  for(const o of [...P.openings].sort(byId)) o.name=nextName(OPPRE[o.kind]);
+  P.photos.forEach((f,i)=>f.name='F'+(i+1)); P.fcnt=P.photos.length;
+  P.dirty=prev; // renumerar no cambia la geometría
+  save(); renderProps(); draw(); toast('Elementos renumerados ✔');
 }
 
 /* ============ Medidas ============ */
@@ -1099,24 +1223,25 @@ async function buildReport(){
   doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.text('PLANTA DE LEVANTAMIENTO', M, y+5.5);
   if(pl){
     doc.setFont('helvetica','normal'); doc.setFontSize(10);
-    doc.text(pl.den ? `Escala 1:${pl.den}` : 'Sin escala', PW-M, y+5.5, {align:'right'});
+    const ok=P.rectified && P.dirty===false; doc.text(ok ? (pl.den ? `Escala 1:${pl.den}` : 'Sin escala') : 'Croquis sin escala (planta no rectificada)', PW-M, y+5.5, {align:'right'});
     doc.addImage(pl.data,'PNG',M,iy,CW,ih,undefined,'FAST');
     doc.setDrawColor(200); doc.setLineWidth(0.2); doc.rect(M,iy,CW,ih);
     // escala gráfica
-    const by=iy+ih+4; const Ls=[1,2,5,10,20,50,100]; let L=1; for(const l of Ls) if(l*pl.mmPerM<=50) L=l;
+    const by=iy+ih+4; if(!ok){ doc.setFontSize(8); doc.setTextColor(...grey); doc.text('Croquis: proporciones aproximadas, valen las cotas.', M, by+3); } else { const Ls=[1,2,5,10,20,50,100]; let L=1; for(const l of Ls) if(l*pl.mmPerM<=50) L=l;
     const seg=L*pl.mmPerM/4; doc.setDrawColor(...ink); doc.setLineWidth(0.2);
     for(let i=0;i<4;i++){ doc.setFillColor(...(i%2?[255,255,255]:ink)); doc.rect(M+i*seg, by, seg, 1.6, 'FD'); }
-    doc.setFontSize(7.5); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'});
+    doc.setFontSize(7.5); doc.text('0', M, by+5, {align:'center'}); doc.text(L+' m', M+4*seg, by+5, {align:'center'}); }
     doc.setTextColor(...grey); doc.setFontSize(8);
-    doc.text('Croquis: el trazo es aproximado y valen las cotas. Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-4*seg-8});
+    doc.text((ok?'Planta rectificada con las medidas láser (cara a cara). ':'')+'Medidas en metros. Verde: medido · naranjo (?): pendiente.', PW-M, by+1.5, {align:'right', maxWidth:CW-60});
   } else { doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.text('Sin elementos dibujados.', M, y+14); }
   // ---- Tabla de medidas ----
   doc.addPage();
   doc.setTextColor(...ink); doc.setFont('helvetica','bold'); doc.setFontSize(12); doc.text('TABLA DE MEDIDAS', M, 24);
   const v=x=>x==null?'':fmt(x);
+  const dc={}; if(P.rectified && P.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
   const rows=measurable().map(({e,kind})=>{
     if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):''), '', e.len==null?'sin medir':fmt(e.len), v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
-    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?'diagonal / control':'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), '', ''];
+    return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):'', kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), '', ''];
   });
   doc.autoTable({startY:28, margin:{left:M,right:M,top:20,bottom:16}, theme:'grid',
     head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Dist. a esquina','Alto']],
@@ -1187,6 +1312,9 @@ function openMenu(){
     <div class="grid2"><div class="f">Dirección<input id="mAddr" value="${esc(P.address)}" placeholder="Ej: Sucre 1858, Tocopilla"></div>
     <div class="f">Propietario<input id="mOwner" value="${esc(P.owner)}"></div></div>
     <div class="f">Levantado por (aparece en el informe)<input id="mAuthor" value="${esc(db.settings.author||'')}" placeholder="Ej: Arq. José Miguel Santibáñez"></div>
+    <h3>Planta</h3>
+    <div class="grid2"><button class="pri" id="mRect">📐 Rectificar planta</button><button id="mRenum">🔢 Renumerar</button></div>
+    <p style="font-size:12px;color:var(--muted)">${P.rectified && P.dirty===false ? '✅ La planta está rectificada con las medidas.' : 'Rectifica al terminar de medir: la planta queda a escala real.'}</p>
     <h3>Exportar</h3>
     <button class="big pri" id="xPDF">📄 Informe PDF (Carta)</button>
     <div class="grid2"><button class="pri" id="xDXF">Plano DXF (CAD)</button><button class="pri" id="xPNG">Imagen PNG</button>
@@ -1202,10 +1330,13 @@ function openMenu(){
     <div class="f">Espesor tabique (m)<input id="sTab" type="number" step="0.01" inputmode="decimal" value="${s.tTab}"></div></div>
     <label class="tg">Enganchar a 0° / 45° / 90°<input type="checkbox" id="sOrtho" ${s.ortho?'checked':''}></label>
     <label class="tg">Tras medir, pasar al siguiente sin medir<input type="checkbox" id="sAuto" ${s.auto?'checked':''}></label>
+    <label class="tg">Medidas interiores, cara a cara<input type="checkbox" id="sInt" ${s.interior!==false?'checked':''}></label>
     <h3>Cómo se usa</h3>
     <p>1. Dibuja los <b>muros perimetrales</b> y luego los <b>tabiques</b>, igual que en la libreta.</p>
     <p>2. Con <b>Vano</b> elige Puerta, Ventana o Vano vacío y toca el muro. El láser llena primero el <b>ancho</b> y luego la <b>distancia a la esquina</b> marcada con el punto azul.</p>
     <p>3. Conecta la huincha con <b>Láser</b>: elige un elemento y mide; la cota se asigna sola.</p>
+    <p>Para ubicar un tabique, dibuja una <b>Cota</b> recta desde la cara del muro hasta el tabique y mídela. Las diagonales sirven de control.</p>
+    <p>Al terminar, usa <b>📐 Rectificar planta</b>: el dibujo pasa a escala real con tus medidas.</p>
     <p>4. Con <b>Foto</b> toca en el plano desde dónde fotografías; sobre la foto dibuja flechas de cota y notas.</p>
     <p>5. Exporta el <b>Informe PDF</b> (datos, planta a escala, tabla de medidas y fotos), o DXF por capas, PNG, CSV y fotos en JPG.</p>
     <p>Todo queda en este teléfono. Haz un <b>respaldo completo</b> (incluye fotos) de vez en cuando.</p>
@@ -1215,6 +1346,10 @@ function openMenu(){
   $('#mAuthor').onchange=e=>{ db.settings.author=e.target.value.trim(); save(); };
   $('#xPDF').onclick=async()=>{
     if(!P.walls.length && !P.photos.length) return toast('Aún no hay nada para el informe');
+    if(P.walls.some(w=>w.len!=null) && !(P.rectified && P.dirty===false)){
+      const go=await ask('Planta sin rectificar', 'La planta todavía es el croquis a mano. ¿Rectificarla con las medidas para que el informe quede a escala?', 'Rectificar');
+      if(go){ const r=rectify(); if(r && (r.bad.length || r.diag.some(c=>Math.abs(c.delta)>0.03))) toast('Rectificada. Revisa los avisos en ☰ → Rectificar.', 4000); }
+    }
     toast('Generando informe…', 6000);
     try{ const b=await buildReport(); shareOrDownload(b, safeName()+'_informe.pdf'); }
     catch(err){ toast(String(err&&err.message).includes('conexión') ? 'Para generar el PDF necesitas internet (se descarga el generador).' : 'No se pudo generar el informe: '+(err&&err.message||err), 5000); }
@@ -1224,6 +1359,9 @@ function openMenu(){
   $('#sTab').onchange=e=>{ const v=num(e.target.value); if(v>0){ db.settings.tTab=v; save(); } };
   $('#sOrtho').onchange=e=>{ db.settings.ortho=e.target.checked; save(); };
   $('#sAuto').onchange=e=>{ db.settings.auto=e.target.checked; save(); };
+  $('#sInt').onchange=e=>{ db.settings.interior=e.target.checked; P.dirty=true; save(); draw(); };
+  $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
+  $('#mRenum').onclick=()=>{ renumber(); openMenu(); };
   $('#mClose').onclick=closeSheet;
   $('#xDXF').onclick=()=>{ if(!P.walls.length&&!P.dims.length) return toast('Aún no hay nada dibujado'); shareOrDownload(new Blob([buildDXF()],{type:'application/dxf'}), safeName()+'.dxf'); };
   $('#xPNG').onclick=async()=>{ const b=await buildPNG(); if(!b) return toast('Aún no hay nada dibujado'); shareOrDownload(b, safeName()+'.png'); };
@@ -1265,7 +1403,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext');
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, rectify, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>
