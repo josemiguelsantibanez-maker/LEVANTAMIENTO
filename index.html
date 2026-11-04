@@ -32,7 +32,7 @@ button.ghost{background:transparent}
 .fab{position:absolute;right:10px;top:40px;background:#fff;border:1px solid var(--line);border-radius:10px;padding:6px 8px;font-size:12px}
 #vanoBar{position:absolute;left:10px;top:44px;display:none}
 .tools{display:flex;gap:2px;padding:6px 4px;background:#fff;border-top:1px solid var(--line);overflow-x:auto;padding-bottom:max(6px,env(safe-area-inset-bottom))}
-.tool{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 3px;font-size:10.5px;background:transparent;min-width:44px}
+.tool{flex:1 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;font-size:10px;background:transparent;min-width:40px}
 .tool svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .tool.active{background:var(--ink);color:#fff}
 .sep{width:1px;background:var(--line);margin:4px 2px;flex:0 0 1px}
@@ -104,6 +104,7 @@ button.ghost{background:transparent}
     <button class="tool" data-tool="ext"><svg viewBox="0 0 24 24"><rect x="3" y="9" width="18" height="6" fill="currentColor"/></svg>Muro</button>
     <button class="tool" data-tool="tab"><svg viewBox="0 0 24 24"><rect x="3" y="10.5" width="18" height="3" fill="currentColor"/></svg>Tabique</button>
     <button class="tool" data-tool="vano"><svg viewBox="0 0 24 24"><path d="M2 20h5M17 20h5M7 20V6a10 10 0 0110 10v4"/></svg>Vano</button>
+    <button class="tool" data-tool="col"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" fill="currentColor"/><path d="M3 12h4M17 12h4"/></svg>Pilar</button>
     <button class="tool" data-tool="dim"><svg viewBox="0 0 24 24"><path d="M4 18L20 6M4 14v8M20 2v8"/></svg>Cota</button>
     <button class="tool" data-tool="txt"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg>Texto</button>
     <button class="tool" data-tool="foto"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto</button>
@@ -200,10 +201,10 @@ function saveNow(){
   }catch(e){ toast('No se pudo guardar en el teléfono'); }
 }
 /* ============ Niveles ============ */
-const LV_KEYS=['walls','dims','labels','openings','photos','aligns','cnt','fcnt','dirty','rectified'];
+const LV_KEYS=['walls','dims','labels','openings','cols','photos','aligns','cnt','fcnt','dirty','rectified'];
 const LV_NAMES=['1er','2do','3er','4to','5to','6to','7mo','8vo'];
 function levelName(i){ return (LV_NAMES[i]||(i+1)+'°')+' nivel'; }
-function normLevel(L){ for(const k of ['walls','dims','labels','openings','photos','aligns']) L[k]=L[k]||[]; L.cnt=L.cnt||{}; L.fcnt=L.fcnt||0; return L; }
+function normLevel(L){ for(const k of ['walls','dims','labels','openings','cols','photos','aligns']) L[k]=L[k]||[]; L.cnt=L.cnt||{}; L.fcnt=L.fcnt||0; return L; }
 function blankLevel(i){ return normLevel({id:'L'+Date.now()+Math.floor(Math.random()*1000), name:levelName(i), npt:null, slab:null, dirty:true, rectified:false}); }
 function loadLevel(p,i){ p.cur=i; const L=p.levels[i]; for(const k of LV_KEYS) p[k]=L[k]; }
 function syncLevel(p){ p=p||P; if(!p||!p.levels||p.walls===undefined) return; const L=p.levels[p.cur||0]; if(!L) return; for(const k of LV_KEYS) L[k]=p[k]; }   // solo si el nivel activo está cargado
@@ -328,10 +329,10 @@ function segDist(px,py,ax,ay,bx,by){
 }
 const len = e => Math.hypot(e.b.x-e.a.x, e.b.y-e.a.y);
 const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(n)?null:n; };
-function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='photo'?p.photos : p.labels; }
+function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='col'?p.cols : kind==='photo'?p.photos : p.labels; }
 function getEl(s){ if(!s) return null; return arrOf(s.kind).find(e=>e.id===s.id)||null; }
 function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
-function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
+function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cols:P.cols, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
   fcnt:P.fcnt, phMeta:P.photos.map(f=>({id:f.id,x:f.x,y:f.y,name:f.name,dir:f.dir}))}); }
 function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); P.dirty=true; }
 function undo(){
@@ -373,7 +374,7 @@ function bounds(p){
   p = p||P; let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity;
   const add=q=>{x0=Math.min(x0,q.x);y0=Math.min(y0,q.y);x1=Math.max(x1,q.x);y1=Math.max(y1,q.y)};
   p.walls.forEach(w=>{add(w.a);add(w.b)}); p.dims.forEach(d=>{add(d.a);add(d.b)}); p.labels.forEach(l=>add(l));
-  p.photos.forEach(f=>{ if(f.x!=null) add(f); });
+  p.photos.forEach(f=>{ if(f.x!=null) add(f); }); (p.cols||[]).forEach(c=>{ const g=colGeom(c,p); if(g) add(g.c); });
   return isFinite(x0) ? {x0,y0,x1,y1} : null;
 }
 function fitView(){
@@ -420,6 +421,44 @@ function opGeom(o, p){
   return {w, L, k, sw, c, ux, uy, nx:-uy, ny:ux,
     p1:{x:w.a.x+ux*(c-sw/2), y:w.a.y+uy*(c-sw/2)}, p2:{x:w.a.x+ux*(c+sw/2), y:w.a.y+uy*(c+sw/2)},
     face, ref: o.ref==='b' ? {x:w.b.x-ux*face, y:w.b.y-uy*face} : {x:w.a.x+ux*face, y:w.a.y+uy*face}, refEdge: o.ref==='b' ? 'p2' : 'p1'};
+}
+/* ============ Pilares ============ */
+const COLDEF=0.25;
+function colFields(c){ return c.mode==='wall' ? ['w','d','off'] : ['w','d','r1v','r2v']; }
+function colGeom(c, p){
+  // centro, ejes locales (u: ancho, v: largo) y esquinas del pilar
+  p=p||P; const W=c.w??COLDEF, Dp=c.d??COLDEF;
+  let cx, cy, ux, uy;
+  if(c.mode==='wall'){
+    const w=p.walls.find(x=>x.id===c.wall); if(!w) return null; const L=len(w); if(L<1e-6) return null;
+    const k = w.len ? L/axisTarget(w,p) : 1; ux=(w.b.x-w.a.x)/L; uy=(w.b.y-w.a.y)/L;
+    const rp = c.ref==='b' ? w.b : w.a; const face=FACESIGN[faceOf(c)]*faceAt(w, rp, p)*k; const wk=W*k;
+    let t = c.off!=null ? (c.ref==='b' ? L-(face+c.off*k+wk/2) : face+c.off*k+wk/2) : c.t*L;
+    t=Math.max(wk/2, Math.min(L-wk/2, t)); cx=w.a.x+ux*t; cy=w.a.y+uy*t;
+    const g={c:{x:cx,y:cy}, ux, uy, W:wk, D:Dp*k, wall:w, ref:rp, t, L};
+    return colCorners(g);
+  }
+  const th=c.rot ?? 0; ux=Math.cos(th); uy=Math.sin(th);
+  cx=c.x; cy=c.y;
+  const refs=[[c.r1w,c.r1v,c.r1s],[c.r2w,c.r2v,c.r2s]].map(([wid,v,sg])=>{ const w=p.walls.find(x=>x.id===wid); return w&&len(w)>1e-6 ? {w,v,sg:sg||1} : null; });
+  // con las dos distancias medidas, el centro sale de la intersección de las dos líneas paralelas a los muros
+  const lines=refs.map(r=>{ if(!r || r.v==null) return null; const L=len(r.w), wx=(r.w.b.x-r.w.a.x)/L, wy=(r.w.b.y-r.w.a.y)/L, nx=-wy, ny=wx;
+    const half=Math.abs(nx*ux+ny*uy)*W/2+Math.abs(nx*(-uy)+ny*ux)*Dp/2; const off=r.sg*(r.w.t/2+r.v+half);
+    return {px:r.w.a.x+nx*off, py:r.w.a.y+ny*off, dx:wx, dy:wy, nx, ny}; });
+  if(lines[0] && lines[1]){ const A=lines[0], B=lines[1], den=A.dx*B.dy-A.dy*B.dx;
+    if(Math.abs(den)>1e-9){ const t=((B.px-A.px)*B.dy-(B.py-A.py)*B.dx)/den; cx=A.px+A.dx*t; cy=A.py+A.dy*t; } }
+  else for(const l of lines) if(l){ const dd=(cx-l.px)*l.nx+(cy-l.py)*l.ny; cx-=l.nx*dd; cy-=l.ny*dd; }
+  return colCorners({c:{x:cx,y:cy}, ux, uy, W, D:Dp, refs});
+}
+function colCorners(g){ const vx=-g.uy, vy=g.ux, a=g.W/2, b=g.D/2, c=g.c;
+  g.pts=[[-a,-b],[a,-b],[a,b],[-a,b]].map(([i,j])=>({x:c.x+g.ux*i+vx*j, y:c.y+g.uy*i+vy*j})); return g; }
+function colRefsFor(x, y){
+  // los dos muros más cercanos y no paralelos, como referencias del pilar aislado
+  const cand=P.walls.filter(w=>len(w)>1e-6).map(w=>{ const L=len(w), nx=-(w.b.y-w.a.y)/L, ny=(w.b.x-w.a.x)/L; const dd=(x-w.a.x)*nx+(y-w.a.y)*ny;
+    const r=segDist(x,y,w.a.x,w.a.y,w.b.x,w.b.y); return {w, d:Math.abs(dd), sg:Math.sign(dd)||1, seg:r.d, ux:(w.b.x-w.a.x)/L, uy:(w.b.y-w.a.y)/L}; })
+    .sort((a,b)=>(a.seg+a.d)-(b.seg+b.d));
+  const r1=cand[0]; const r2=r1 && cand.find(o=>Math.abs(o.ux*r1.ux+o.uy*r1.uy)<0.5);
+  return [r1, r2];
 }
 function shortArc(c, cx, cy, r, a1, a2){ let d=a2-a1; while(d>Math.PI) d-=2*Math.PI; while(d<=-Math.PI) d+=2*Math.PI; c.arc(cx,cy,r,a1,a1+d,d<0); }
 
@@ -493,6 +532,23 @@ function renderPlan(c, v, o){
       c.fillStyle='#0f6fde'; c.beginPath(); c.arc(r.x,r.y,5*k,0,7); c.fill();
     }
   }
+  // pilares
+  for(const cl of (p.cols||[])){
+    const g=colGeom(cl,p); if(!g) continue; const sl=isSel('col',cl.id); const q=g.pts.map(S);
+    c.beginPath(); q.forEach((pt,i)=>i?c.lineTo(pt.x,pt.y):c.moveTo(pt.x,pt.y)); c.closePath();
+    c.fillStyle= sl ? '#0f6fde' : '#111'; c.fill(); c.lineWidth=1.2*k; c.strokeStyle= sl ? '#0f6fde' : '#111'; c.stroke();
+    c.strokeStyle='rgba(255,255,255,.55)'; c.lineWidth=1*k; c.beginPath(); c.moveTo(q[0].x,q[0].y); c.lineTo(q[2].x,q[2].y); c.moveTo(q[1].x,q[1].y); c.lineTo(q[3].x,q[3].y); c.stroke();
+    const cc=S(g.c); const meas = cl.w!=null && cl.d!=null;
+    haloText(c, `${cl.name} ${fmt(cl.w)}×${fmt(cl.d)}`, cc.x, cc.y - (Math.max(g.W,g.D)*v.s/2 + 11*k), 0, `700 ${10.5*k}px system-ui`, meas?'#15803d':'#d97706');
+    if(sl){
+      c.strokeStyle='#0f6fde'; c.lineWidth=1.2*k; c.setLineDash([4*k,3*k]);
+      if(cl.mode==='wall'){ const r=S(g.ref); c.beginPath(); c.moveTo(r.x,r.y); c.lineTo(cc.x,cc.y); c.stroke(); c.setLineDash([]); c.fillStyle='#0f6fde'; c.beginPath(); c.arc(r.x,r.y,5*k,0,7); c.fill();
+        haloText(c, 'dist. '+fmt(cl.off), (r.x+cc.x)/2, (r.y+cc.y)/2-10*k, 0, `600 ${11*k}px system-ui`, '#0f6fde'); }
+      else { (g.refs||[]).forEach((rf,i)=>{ if(!rf) return; const L=len(rf.w), nx=-(rf.w.b.y-rf.w.a.y)/L, ny=(rf.w.b.x-rf.w.a.x)/L; const dd=(g.c.x-rf.w.a.x)*nx+(g.c.y-rf.w.a.y)*ny;
+          const foot=S({x:g.c.x-nx*dd, y:g.c.y-ny*dd}); c.beginPath(); c.moveTo(cc.x,cc.y); c.lineTo(foot.x,foot.y); c.stroke();
+          haloText(c, `a ${rf.w.name}: ${fmt(i?cl.r2v:cl.r1v)}`, (cc.x+foot.x)/2, (cc.y+foot.y)/2-9*k, 0, `600 ${11*k}px system-ui`, '#0f6fde'); }); c.setLineDash([]); }
+    }
+  }
   // cotas de muros (en el tramo libre más largo, para no chocar con vanos)
   const thR=mainAxis(p.walls.filter(x=>len(x)>1e-6));
   const gapsOf={}; for(const op of p.openings){ const g=opGeom(op,p); if(g) (gapsOf[op.wall]=gapsOf[op.wall]||[]).push([g.c-g.sw/2-0.15, g.c+g.sw/2+0.15]); }
@@ -554,6 +610,7 @@ function countFields(p){
   p=p||P; let n=0,m=0;
   for(const e of [...p.walls,...p.dims]){ n++; if(e.len!=null) m++; }
   for(const o of p.openings){ n+=2; if(o.len!=null) m++; if(o.off!=null) m++; }
+  for(const c of (p.cols||[])){ for(const f of colFields(c)){ n++; if(c[f]!=null) m++; } }
   return {n,m};
 }
 function draw(){
@@ -643,6 +700,8 @@ function hitTest(sx, sy){
   if(best) return best;
   for(const l of P.labels){ const q=w2s(l); const d=Math.hypot(q.x-sx,q.y-sy); if(d<26 && d<bd){ bd=d; best={kind:'label',id:l.id}; } }
   if(best) return best;
+  for(const cl of P.cols){ const g=colGeom(cl); if(!g) continue; const q=w2s(g.c); const d=Math.hypot(q.x-sx,q.y-sy); if(d<Math.max(20,Math.max(g.W,g.D)*view.s/2+8) && d<bd){ bd=d; best={kind:'col',id:cl.id,field:colFields(cl)[0]}; } }
+  if(best) return best;
   for(const o of P.openings){ const g=opGeom(o); if(!g) continue; const a=w2s(g.p1), b=w2s(g.p2); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); if(r.d<Math.max(18,g.w.t*view.s/2+8) && r.d<bd){ bd=r.d; best={kind:'open',id:o.id,field:'len'}; } }
   if(best) return best;
   for(const d of P.dims){ const a=w2s(d.a), b=w2s(d.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); if(r.d<18 && r.d<bd){ bd=r.d; best={kind:'dim',id:d.id}; } }
@@ -652,6 +711,7 @@ function hitTest(sx, sy){
 function selCenter(){
   const e=getEl(sel); if(!e) return null;
   if(sel.kind==='open'){ const g=opGeom(e); return g? w2s({x:(g.p1.x+g.p2.x)/2, y:(g.p1.y+g.p2.y)/2}) : null; }
+  if(sel.kind==='col'){ const g=colGeom(e); return g? w2s(g.c) : null; }
   if(e.a) return w2s({x:(e.a.x+e.b.x)/2, y:(e.a.y+e.b.y)/2});
   return w2s(e);
 }
@@ -662,12 +722,13 @@ function ensureVisible(){
   if(c.y<110){ view.oy+=110-c.y; }
 }
 function select(s){ if(s && s.kind==='photo'){ openPhoto(s.id); return; } sel=s; renderProps(); ensureVisible(); draw(); }
-const FIELDS = {wall:['len'], dim:['len'], open:['len','off'], label:['h']};
+const FIELDS = {wall:['len'], dim:['len'], open:['len','off'], label:['h'], col:['w','d']};
+const fieldsOf = (kind, e) => kind==='col' ? colFields(e) : FIELDS[kind];
 function measurable(){
-  return [...P.walls.map(e=>({e,kind:'wall'})), ...P.dims.map(e=>({e,kind:'dim'})), ...P.openings.map(e=>({e,kind:'open'}))].sort((x,y)=>x.e.id-y.e.id);
+  return [...P.walls.map(e=>({e,kind:'wall'})), ...P.dims.map(e=>({e,kind:'dim'})), ...P.openings.map(e=>({e,kind:'open'})), ...P.cols.map(e=>({e,kind:'col'}))].sort((x,y)=>x.e.id-y.e.id);
 }
 function nextUnmeasured(fromId){
-  const list=measurable().map(x=>({...x, f:FIELDS[x.kind].find(f=>x.e[f]==null)})).filter(x=>x.f);
+  const list=measurable().map(x=>({...x, f:fieldsOf(x.kind,x.e).find(f=>x.e[f]==null)})).filter(x=>x.f);
   if(!list.length) return null; const n=list.find(x=>x.e.id>fromId)||list[0];
   return {kind:n.kind, id:n.e.id, field:n.f};
 }
@@ -680,7 +741,35 @@ function renderProps(){
   box.style.display='block';
   const lm = lastMeasure!=null ? `<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>` : '';
   const btLine = bt.state==='on' ? `<div class="row waiting">● Dispara la huincha: se llena el campo marcado en azul</div>` : '';
-  if(sel.kind==='label'){
+  if(sel.kind==='col'){
+    const f=sel.field||colFields(e)[0]; const w=e.mode==='wall'?P.walls.find(x=>x.id===e.wall):null;
+    const R=[e.r1w,e.r2w].map(id=>P.walls.find(x=>x.id===id));
+    const inp=(k,lab,ph)=>`<label>${lab} <input data-cf="${k}" class="${f===k?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e[k]??''}" placeholder="${ph||''}"></label>`;
+    const FS=`<span class="seg">${['int','ext','eje'].map(x=>`<button data-face="${x}" class="${faceOf(e)===x?'on':''}">${FACES[x]}</button>`).join('')}</span>`;
+    box.innerHTML=`<div class="row"><span class="name">Pilar ${esc(e.name)}</span><span class="sub">${w?'en '+esc(w.name):'aislado'}</span>
+        <span class="val ${e.w!=null&&e.d!=null?'okv':'miss'}" style="font-size:18px">${fmt(e.w)} × ${fmt(e.d)}</span><button class="ghost" id="pClose">✕</button></div>
+      <div class="row">${inp('w', w?'Ancho (a lo largo)':'Ancho', fmt(COLDEF))}${inp('d', w?'Largo (perpendicular)':'Largo', fmt(COLDEF))}</div>
+      ${w?`<div class="row">${inp('off','Dist.●')}<label>desde cara</label>${FS}</div>`
+         :`<div class="row">${R[0]?inp('r1v','Dist. a '+esc(R[0].name)):''}${R[1]?inp('r2v','Dist. a '+esc(R[1].name)):''}<span class="sub">de la cara del muro a la cara del pilar</span></div>`}
+      <div class="row">${lastMeasure!=null?`<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>`:''}
+        ${w?'<button id="pRef">● Otra esquina</button>':'<button id="pRefs">Cambiar referencias</button>'}
+        <button id="pNext">Siguiente ›</button><button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
+      ${bt.state==='on'?'<div class="row waiting">● Dispara la huincha: se llena el campo marcado en azul</div>':''}`;
+    box.querySelectorAll('input[data-cf]').forEach(x=>{
+      x.onfocus=()=>{ sel.field=x.dataset.cf; box.querySelectorAll('input[data-cf]').forEach(y=>y.classList.toggle('tgt', y===x)); };
+      x.onchange=()=>{ const v=num(x.value); pushUndo(); e[x.dataset.cf]= v==null?null:r3(v); save(); renderProps(); draw(); };
+    });
+    if($('#pRef')) $('#pRef').onclick=()=>{ pushUndo(); const g=colGeom(e); if(g){ e.t=g.t/g.L; } e.ref=e.ref==='b'?'a':'b'; e.off=null; sel.field='off'; save(); renderProps(); draw(); toast('Mide la distancia desde la otra esquina'); };
+    if($('#pRefs')) $('#pRefs').onclick=()=>{ pushUndo(); const g=colGeom(e); const all=colRefsFor(g.c.x,g.c.y);
+      // alterna a los siguientes muros más cercanos
+      const cand=P.walls.filter(x=>len(x)>1e-6 && x.id!==e.r1w && x.id!==e.r2w); if(!cand.length) return;
+      const near1=cand.map(x=>({x, d:segDist(g.c.x,g.c.y,x.a.x,x.a.y,x.b.x,x.b.y).d})).sort((a,b)=>a.d-b.d)[0].x;
+      const L=len(near1), nx=-(near1.b.y-near1.a.y)/L, ny=(near1.b.x-near1.a.x)/L; const dd=(g.c.x-near1.a.x)*nx+(g.c.y-near1.a.y)*ny;
+      const ux1=(near1.b.x-near1.a.x)/L, uy1=(near1.b.y-near1.a.y)/L; const r1=P.walls.find(x=>x.id===e.r1w);
+      const par = r1 && Math.abs(ux1*(r1.b.x-r1.a.x)/len(r1)+uy1*(r1.b.y-r1.a.y)/len(r1))>0.5;
+      if(par){ e.r1w=near1.id; e.r1s=Math.sign(dd)||1; e.r1v=null; } else { e.r2w=near1.id; e.r2s=Math.sign(dd)||1; e.r2v=null; }
+      e.x=g.c.x; e.y=g.c.y; save(); renderProps(); draw(); };
+  } else if(sel.kind==='label'){
     box.innerHTML=`<div class="row"><span class="name">Recinto</span>
         <span class="val ${e.h!=null?'okv':'miss'}" style="font-size:18px">${e.h!=null?'h = '+fmt(e.h)+' m':'sin altura'}</span><button class="ghost" id="pClose">✕</button></div>
       <div class="row"><input class="wide" id="pText" value="${esc(e.text)}"></div>
@@ -763,7 +852,9 @@ function renderProps(){
   if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
   $('#pDel').onclick=()=>{
     pushUndo(); const arr=arrOf(sel.kind); arr.splice(arr.indexOf(e),1);
-    if(sel.kind==='wall'){ P.openings=P.openings.filter(o=>o.wall!==e.id); P.aligns=P.aligns.filter(al=>al.a!==e.id&&al.b!==e.id); }
+    if(sel.kind==='wall'){ for(const cl of P.cols) if(cl.mode==='wall' && cl.wall===e.id){ const g=colGeom(cl); cl.mode='free'; cl.x=g.c.x; cl.y=g.c.y; cl.rot=Math.atan2(g.uy,g.ux); delete cl.wall; }
+      for(const cl of P.cols) if(cl.mode!=='wall'){ if(cl.r1w===e.id){ cl.r1w=null; cl.r1v=null; } if(cl.r2w===e.id){ cl.r2w=null; cl.r2v=null; } }
+      P.openings=P.openings.filter(o=>o.wall!==e.id); P.aligns=P.aligns.filter(al=>al.a!==e.id&&al.b!==e.id); }
     sel=null; save(); renderProps(); draw();
   };
 }
@@ -923,7 +1014,7 @@ function rectify(){
   pushUndo();
   const disp=nodes.map((q,k)=>({x:q.x, y:q.y, dx:X[2*k]-q.x, dy:X[2*k+1]-q.y}));
   const move=o=>{ let sw=0,sx=0,sy=0; for(const d of disp){ const wt=1/((d.x-o.x)**2+(d.y-o.y)**2+1e-6); sw+=wt; sx+=wt*d.dx; sy+=wt*d.dy; } o.x+=sx/sw; o.y+=sy/sw; };
-  P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); });
+  P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); }); P.cols.forEach(c=>{ if(c.mode!=='wall') move(c); });
   for(const q of pts){ const k=idx.get(q); q.x=X[2*k]; q.y=X[2*k+1]; }
   const bad=wallInfo.filter(o=>o.w.len!=null && Math.abs(len(o.w)-o.target)>0.02).map(o=>({w:o.w, got:len(o.w)-(o.target-o.w.len)}));
   const th=SQ.th, angled=SQ.angled.map(w=>{ let deg=(Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x)-th)/DEG; deg=((deg%180)+180)%180; return {w, deg:Math.round(deg*10)/10}; });
@@ -962,6 +1053,7 @@ function renumber(){
   for(const w of [...P.walls].sort(byId)) w.name=nextName(w.type==='ext'?'M':'T');
   for(const d of [...P.dims].sort(byId)) d.name=nextName('C');
   for(const o of [...P.openings].sort(byId)) o.name=nextName(OPPRE[o.kind]);
+  for(const c of [...P.cols].sort(byId)) c.name=nextName('PL');
   P.photos.forEach((f,i)=>f.name='F'+(i+1)); P.fcnt=P.photos.length;
   P.dirty=prev; // renumerar no cambia la geometría
   save(); renderProps(); draw(); toast('Elementos renumerados ✔');
@@ -971,10 +1063,11 @@ function renumber(){
 function assignMeasure(m, manual){
   const e=getEl(sel); if(!e || !FIELDS[sel.kind]) return false;
   const f = sel.kind==='label' ? 'h' : (sel.field || 'len'); pushUndo(); e[f]=r3(m); save();
-  const lbl = sel.kind==='open' ? `${e.name} ${f==='len'?'ancho':f==='off'?'distancia':'alto'}` : sel.kind==='label' ? `${e.text} altura` : e.name;
+  const COLF={w:'ancho', d:'largo', off:'distancia', r1v:'distancia 1', r2v:'distancia 2'};
+  const lbl = sel.kind==='open' ? `${e.name} ${f==='len'?'ancho':f==='off'?'distancia':'alto'}` : sel.kind==='label' ? `${e.text} altura` : sel.kind==='col' ? `${e.name} ${COLF[f]||f}` : e.name;
   toast(`${lbl} = ${fmt(m)} m`); vibrate(40);
   if(db.settings.auto && !manual && sel.kind!=='label'){
-    const rest = FIELDS[sel.kind].find(x=>e[x]==null);
+    const rest = fieldsOf(sel.kind, e).find(x=>e[x]==null);
     if(rest) sel={...sel, field:rest}; else { const n=nextUnmeasured(e.id); if(n) sel=n; }
   }
   renderProps(); ensureVisible(); draw(); return true;
@@ -1052,6 +1145,7 @@ function setTool(t){
   const Hn={ext:'Arrastra para dibujar un <b>muro de cerramiento</b>. Se engancha a extremos, muros y 45°/90°.',
            tab:'Arrastra para dibujar un <b>tabique</b>. Puede partir o terminar sobre un muro.',
            vano:'',
+           col:'Toca <b>sobre un muro</b> para un pilar en el muro, o <b>dentro de un recinto</b> para un pilar aislado (se refiere a los 2 muros más cercanos).',
            dim:'Arrastra para una <b>cota libre</b>: diagonales de control, retiros…',
            txt:'Toca donde quieras escribir el <b>nombre del recinto</b>.',
            foto:'Pon el dedo <b>donde estás</b> y arrástralo <b>hacia donde apunta la cámara</b>. Para cambiar la dirección de una foto, arrastra desde su cámara.',
@@ -1098,6 +1192,12 @@ cv.addEventListener('pointerdown', e=>{
         const moving=endpoints().filter(z=>near(z,el.a,1e-6)||near(z,el.b,1e-6));
         pushUndo(); gest={type:'move', moving:moving.map(z=>({z, x:z.x, y:z.y})), start:p, moved:false}; return; }
     }
+    if(el && sel.kind==='col'){
+      const g=colGeom(el); if(g){ const q=w2s(g.c); if(Math.hypot(q.x-p.x,q.y-p.y)<Math.max(26,Math.max(g.W,g.D)*view.s/2+10)){
+        const fixed = el.mode==='wall' ? el.off!=null : (el.r1v!=null && el.r2v!=null);
+        if(fixed) toast('La posición ya está medida: cambia las distancias en el panel');
+        else { pushUndo(); gest={type:'colmove', col:el, start:p, moved:false}; return; } } }
+    }
     if(el && sel.kind==='open'){
       const g=opGeom(el); if(g){ const a=w2s(g.p1), b=w2s(g.p2); if(segDist(p.x,p.y,a.x,a.y,b.x,b.y).d<26){
         if(el.off!=null){ toast('La posición ya está medida: cambia la distancia en el panel'); }
@@ -1118,7 +1218,7 @@ cv.addEventListener('pointermove', e=>{
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>8) gest.moved=true;
     if(draft){ const s=snapPoint(p.x,p.y,draft.a); draft.b=ptOf(s); draft.snap=s; draw(); }
     else if(gest.foto && gest.moved){ const w=s2w(gest.start.x,gest.start.y); aimDraft={x:w.x, y:w.y, dir:Math.atan2(p.y-gest.start.y, p.x-gest.start.x)}; draw(); }
-    else if((tool==='sel'||tool==='vano'||tool==='txt') && gest.moved){ view.ox=gest.v0.ox+p.x-gest.start.x; view.oy=gest.v0.oy+p.y-gest.start.y; draw(); }
+    else if((tool==='sel'||tool==='vano'||tool==='txt'||tool==='col') && gest.moved){ view.ox=gest.v0.ox+p.x-gest.start.x; view.oy=gest.v0.oy+p.y-gest.start.y; draw(); }
   }
   if(gest.type==='drag'){ gest.moved=true; const s=snapPoint(p.x,p.y,null,gest.moving,gest.exclW); for(const z of gest.moving){ z.x=s.x; z.y=s.y; if(s.w!=null && !gest.exclW.has(P.walls.find(w=>w.id===s.w))) z.on=s.w; else delete z.on; } reattach(gest.exclW); draw(); }
   if(gest.type==='aim'){
@@ -1129,6 +1229,12 @@ cv.addEventListener('pointermove', e=>{
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
     let dx=(p.x-gest.start.x)/view.s, dy=(p.y-gest.start.y)/view.s; dx=Math.round(dx/0.01)*0.01; dy=Math.round(dy/0.01)*0.01;
     for(const m of gest.moving){ m.z.x=m.x+dx; m.z.y=m.y+dy; } reattach(); draw(); return;
+  }
+  if(gest.type==='colmove'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return; const cl=gest.col;
+    if(cl.mode==='wall'){ const w=wallOf(cl); if(w){ const a=w2s(w.a), b=w2s(w.b); cl.t=segDist(p.x,p.y,a.x,a.y,b.x,b.y).t; } }
+    else { const q=s2w(p.x,p.y); cl.x=Math.round(q.x/0.01)*0.01; cl.y=Math.round(q.y/0.01)*0.01; }
+    draw(); return;
   }
   if(gest.type==='slide'){
     gest.moved=true; const w=wallOf(gest.op); if(!w) return; const a=w2s(w.a), b=w2s(w.b);
@@ -1144,7 +1250,7 @@ function endPointer(e){
   if(g.type==='aim'){ if(!g.moved){ undoStack.pop(); openPhoto(g.f.id); } else { save(); draw(); toast(g.f.name+': dirección actualizada'); } return; }
   if(g.foto && g.moved && aimDraft){ const a=aimDraft; aimDraft=null; draw(); askPhoto({x:a.x, y:a.y, dir:a.dir}); return; }
   aimDraft=null;
-  if(g.type==='drag'||g.type==='slide'||g.type==='move'){
+  if(g.type==='drag'||g.type==='slide'||g.type==='move'||g.type==='colmove'){
     if(!g.moved){ undoStack.pop(); if(pending){ handlePending(g.start.x,g.start.y); return; } }
     save(); draw(); return; }
   if(draft){
@@ -1159,6 +1265,16 @@ function endPointer(e){
   if(g.moved) return;
   if(pending){ handlePending(g.start.x,g.start.y); return; }
   const h=hitTest(g.start.x,g.start.y);
+  if(tool==='col'){
+    if(h && (h.kind==='col'||h.kind==='photo'||h.kind==='open')){ select(h); return; }
+    const on=nearestOnWall(g.start.x,g.start.y,Math.max(16, 0.12*view.s)); pushUndo();
+    let el;
+    if(on) el={id:P.seq++, mode:'wall', name:nextName('PL'), wall:on.w.id, t:on.t, ref:'a', w:null, d:null, off:null};
+    else { const q=s2w(g.start.x,g.start.y); const [r1,r2]=colRefsFor(q.x,q.y);
+      el={id:P.seq++, mode:'free', name:nextName('PL'), x:q.x, y:q.y, rot:mainAxis(P.walls.filter(w=>len(w)>1e-6)), w:null, d:null,
+          r1w:r1?r1.w.id:null, r1s:r1?r1.sg:1, r1v:null, r2w:r2?r2.w.id:null, r2s:r2?r2.sg:1, r2v:null}; }
+    P.cols.push(el); sel={kind:'col', id:el.id, field:'w'}; save(); renderProps(); ensureVisible(); draw(); return;
+  }
   if(tool==='vano'){
     if(h && (h.kind==='open'||h.kind==='photo')){ select(h); return; }
     const on=nearestOnWall(g.start.x,g.start.y,Math.max(22, 0.15*view.s));
@@ -1394,7 +1510,7 @@ async function shareOrDownload(blob, filename){
 function dxfStr(s){ return String(s).replace(/[^\x20-\x7e]/g, c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0')); }
 function buildDXF(){
   syncLevel(); const L=[]; const add=(...a)=>{ for(const x of a) L.push(String(x)); }; const f=n=>(+n).toFixed(4);
-  const base=[['MUROS',7],['TABIQUES',8],['EJES',9],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
+  const base=[['MUROS',7],['TABIQUES',8],['EJES',9],['PILARES',1],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
   const multi=P.levels.length>1; const layers=[];
   P.levels.forEach((Lv,i)=>{ for(const [n,c] of base) layers.push([(multi?'N'+(i+1)+'_':'')+n, c]); });
   add(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',0,'ENDSEC');
@@ -1423,6 +1539,11 @@ function buildDXF(){
       const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
       const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
       text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len)+faceTag(w):'?')+'  ('+w.name+')', ang*180/Math.PI);
+    }
+    for(const cl of p.cols){
+      const g=colGeom(cl,p); if(!g) continue; for(let i=0;i<4;i++) line('PILARES', g.pts[i], g.pts[(i+1)%4]);
+      line('PILARES', g.pts[0], g.pts[2]); line('PILARES', g.pts[1], g.pts[3]);
+      text(cl.w!=null&&cl.d!=null?'PILARES':'SIN_MEDIR', g.c.x, g.c.y-Math.max(g.W,g.D)/2-0.12, 0.1, `${cl.name} ${fmt(cl.w)}x${fmt(cl.d)}`, 0);
     }
     for(const o of p.openings){
       const g=opGeom(o,p); if(!g) continue; const h=g.w.t/2;
@@ -1480,6 +1601,7 @@ function buildCSV(){
   P.levels.forEach((Lv,li)=>withLevel(li, ()=>{
     const N=Lv.name+' ('+fmtNPT(nptOf(li))+')';
     for(const {e,kind} of measurable()){
+      if(kind==='col'){ rows.push([N, e.name, 'Pilar', colLoc(e), '', (e.w==null?'':n(e.w))+' x '+(e.d==null?'':n(e.d)), e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall'?n(e.off):[n(e.r1v),n(e.r2v)].join(' / '), '', '']); continue; }
       if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([N, e.name, OPNAME[e.kind], (w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'')+(isWin(e.kind)?' antepecho '+fmt(sillOf(e)):''), '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
       else rows.push([N, e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
     }
@@ -1495,6 +1617,11 @@ async function ensurePdf(){
   if(!(window.jspdf && window.jspdf.jsPDF)) await loadScript(PDF_LIBS[0]);
   if(!window.jspdf.jsPDF.API.autoTable) await loadScript(PDF_LIBS[1]);
   return window.jspdf.jsPDF;
+}
+function colLoc(c){
+  if(c.mode==='wall'){ const w=wallOf(c); return (w?'en '+w.name:'')+(c.off!=null?', desde '+refLabel(c):''); }
+  const R=[[c.r1w,c.r1v],[c.r2w,c.r2v]].map(([id,v])=>{ const w=P.walls.find(x=>x.id===id); return w?`a ${w.name}: ${v==null?'?':fmt(v)}`:null; }).filter(Boolean);
+  return 'aislado'+(R.length?' ('+R.join(', ')+')':'');
 }
 function refLabel(o){
   // nombre del muro que llega a la esquina desde donde se midió la distancia
@@ -1589,6 +1716,8 @@ async function buildReport(){
       const dc={}; if(Lv.rectified && Lv.dirty===false) for(const c2 of diagChecks()) dc[c2.d.id]=c2;
       const rows=measurable().map(({e,kind})=>{
         if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):'')+(isWin(e.kind)?`, antepecho ${fmt(sillOf(e))}`:''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
+        if(kind==='col'){ const sec = e.w==null||e.d==null ? 'sin medir' : `${fmt(e.w)} × ${fmt(e.d)}`;
+          return [e.name, 'Pilar', colLoc(e), '', sec, e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall' ? (v(e.off)||'sin medir') : [e.r1v,e.r2v].map(x=>x==null?'?':fmt(x)).join(' / '), '']; }
         return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':e.use?'define la forma':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):(e.ortho===false||!isOrtho(e)?'en ángulo':''), kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
       });
       doc.autoTable({...TS, startY:y+4, head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
@@ -1653,7 +1782,10 @@ function buildRevitJSON(){
     openings: P.openings.map(o=>{ const g=opGeom(o); if(!g) return null;
       return {id:o.id, name:o.name, kind:{door:'door', win:'window', fwin:'floor_window', gap:'opening'}[o.kind], wall:o.wall,
         center:r3(g.c), width:r3(o.len ?? OPDEF[o.kind]), height:r3(opHeight(o)), sill:r3(sillOf(o)), flip:o.flip||0, measured:o.len!=null}; }).filter(Boolean),
-    rooms: P.labels.map(l=>({name:l.text, at:pt(l), height:l.h}))
+    rooms: P.labels.map(l=>({name:l.text, at:pt(l), height:l.h})),
+    columns: P.cols.map(c=>{ const g=colGeom(c); if(!g) return null; const H = c.mode==='wall' && g.wall ? wallHeight(g.wall).v : levelH(Lv);
+      return {id:c.id, name:c.name, center:pt(g.c), width:r3(c.w??COLDEF), depth:r3(c.d??COLDEF),
+        rotation:r3(-Math.atan2(g.uy,g.ux)*180/Math.PI), height:r3(H), measured:c.w!=null&&c.d!=null}; }).filter(Boolean)
   })));
   return JSON.stringify({app:'levantamiento', version:2, units:'m',
     project:{name:P.name, address:P.address, owner:P.owner, date:P.date, rectified:levels.every(l=>l.rectified)}, levels}, null, 1);
@@ -1787,7 +1919,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext'); orthoLabel();
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, addLevel, switchLevel, nptOf, syncLevel, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, colGeom, addLevel, switchLevel, nptOf, syncLevel, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>

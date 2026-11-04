@@ -15,6 +15,7 @@ Crea:
 - Puertas, ventanas y ventanales (antepecho 0) con tipos "Lev ANCHOxALTO" duplicados de la familia elegida.
 - Vanos vacíos como aberturas en el muro.
 - Habitaciones con nombre y altura.
+- Pilares como columnas estructurales (o arquitectónicas), tipo "Lev ANCHOxLARGO", con altura y giro. Nodo 5) opcional para elegir la familia.
 
 Si el `.dyn` no abre: crea un nodo **Python Script** (motor CPython3), pega
 `levantamiento_a_revit.py` y conecta un nodo **File Path** a IN[0].

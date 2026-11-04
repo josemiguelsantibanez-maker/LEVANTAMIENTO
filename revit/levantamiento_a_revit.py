@@ -9,15 +9,17 @@ usa el nivel de Revit que esté a su cota (NPT) o se crea uno nuevo con su vista
   - Puertas, ventanas y ventanales: duplica un tipo de la familia cargada con el ancho y alto medidos.
   - Vanos vacíos: aberturas rectangulares en el muro.
   - Habitaciones con el nombre y la altura de cada recinto.
+  - Pilares: columnas estructurales (o arquitectónicas si no hay) con su sección, altura y giro.
 
 Entradas:
   IN[0]  ruta del archivo .json (nodo File Path)
   IN[1]  (opcional) nombre del nivel de Revit que corresponde al ±0,00. Vacío = nivel más bajo
   IN[2]  (opcional) texto que contenga el nombre de la familia de puertas a usar
   IN[3]  (opcional) texto que contenga el nombre de la familia de ventanas a usar
+  IN[4]  (opcional) texto que contenga el nombre de la familia de pilares a usar
 Ejecutar UNA sola vez en modo Manual: cada ejecución vuelve a crear los elementos.
 """
-import clr, json
+import clr, json, math
 clr.AddReference('RevitAPI')
 from Autodesk.Revit.DB import *
 from Autodesk.Revit.DB.Structure import StructuralType
@@ -38,6 +40,7 @@ path = _in(0)
 level_name = _in(1)
 door_hint = (_in(2) or '').lower()
 win_hint = (_in(3) or '').lower()
+col_hint = (_in(4) or '').lower()
 
 FT = 1.0 / 0.3048
 def ft(m): return float(m) * FT
@@ -176,6 +179,33 @@ def symbol_for(kind, w, h):
     sym_cache[key] = ns
     return ns
 
+col_cache = {}
+def column_symbol(w, d):
+    # primero columnas estructurales; si no hay cargadas, columnas arquitectónicas
+    for cat, structural in ((BuiltInCategory.OST_StructuralColumns, True), (BuiltInCategory.OST_Columns, False)):
+        base_list = symbols(cat, col_hint)
+        if not base_list:
+            continue
+        base = base_list[0]; fam = family_name(base)
+        name = 'Lev %dx%d' % (int(round(w * 100)), int(round(d * 100)))
+        key = (fam, name)
+        if key in col_cache:
+            return col_cache[key], structural
+        for s_ in base_list:
+            if family_name(s_) == fam and type_name(s_) == name:
+                col_cache[key] = s_
+                return s_, structural
+        ns = doc.GetElement(base.Duplicate(name).Id)
+        okw = set_len(ns, ['b', 'Width', 'Anchura', 'Ancho'], [], ft(w))
+        okd = set_len(ns, ['h', 'Depth', 'Profundidad', 'Fondo', 'Largo'], [], ft(d))
+        if not (okw and okd):
+            report.append('Aviso: no se pudo fijar la sección en la familia de pilares "%s"; revisa el tipo %s' % (fam, name))
+        if not ns.IsActive:
+            ns.Activate()
+        col_cache[key] = ns
+        return ns, structural
+    return None, False
+
 # ---------- crear ----------
 TransactionManager.Instance.EnsureInTransaction(doc)
 
@@ -260,7 +290,33 @@ for lv in data['levels']:
             n_rooms += 1
         except Exception as ex:
             report.append('  Habitación "%s" no creada: %s' % (r.get('name'), ex))
-    report.append('  Muros: %d · Puertas y ventanas: %d · Vanos: %d · Habitaciones: %d' % (len(walls), n_inst, n_open, n_rooms))
+    n_cols = 0
+    for c in lv.get('columns', []):
+        try:
+            sym, structural = column_symbol(float(c['width']), float(c['depth']))
+            if sym is None:
+                report.append('  No hay familias de pilares cargadas: se omitió %s' % c['name'])
+                continue
+            doc.Regenerate()
+            pt = P3(c['center'][0], c['center'][1])
+            inst = doc.Create.NewFamilyInstance(pt, sym, level, StructuralType.Column if structural else StructuralType.NonStructural)
+            top = inst.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_PARAM)
+            if top and not top.IsReadOnly:
+                top.Set(level.Id)
+            off = inst.get_Parameter(BuiltInParameter.FAMILY_TOP_LEVEL_OFFSET_PARAM)
+            if off and not off.IsReadOnly:
+                off.Set(ft(c['height']))
+            rot = float(c.get('rotation', 0) or 0)
+            if abs(rot) > 0.01:
+                axis = Line.CreateBound(pt, XYZ(pt.X, pt.Y, pt.Z + 1))
+                ElementTransformUtils.RotateElement(doc, inst.Id, axis, math.radians(rot))
+            m = inst.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)
+            if m:
+                m.Set(c['name'])
+            n_cols += 1
+        except Exception as ex:
+            report.append('  Error en pilar %s: %s' % (c.get('name'), ex))
+    report.append('  Muros: %d · Puertas y ventanas: %d · Vanos: %d · Pilares: %d · Habitaciones: %d' % (len(walls), n_inst, n_open, n_cols, n_rooms))
 
 TransactionManager.Instance.TransactionTaskDone()
 
