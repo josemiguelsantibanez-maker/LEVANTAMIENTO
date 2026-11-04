@@ -149,6 +149,7 @@ button.ghost{background:transparent}
 
 <script>
 "use strict";
+const APP_VERSION = '2026-11-04 · ejes';
 /* ============ Constantes y estado ============ */
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
@@ -1996,6 +1997,7 @@ function openMenu(){
     <p>4. Con <b>Foto</b> pon el dedo donde estás y arrástralo hacia donde apunta la cámara; sobre la foto dibuja flechas de cota y notas.</p>
     <p>5. Exporta el <b>Informe PDF</b> (datos, planta a escala, tabla de medidas y fotos), o DXF por capas, PNG, CSV y fotos en JPG.</p>
     <p>Todo queda en este teléfono. Haz un <b>respaldo completo</b> (incluye fotos) de vez en cuando.</p>
+    <p style="color:var(--muted);font-size:12px;text-align:center">Versión ${APP_VERSION}</p>
     <div class="actions"><button class="pri" id="mClose">Listo</button></div>`);
   $('#mName').onchange=e=>{ P.name=e.target.value.trim()||'Levantamiento'; save(); updateHeader(); };
   $('#mAddr').onchange=e=>{ P.address=e.target.value.trim(); save(); updateHeader(); };
