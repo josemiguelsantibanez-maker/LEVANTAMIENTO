@@ -143,13 +143,13 @@ button.ghost{background:transparent}
 
 <div id="toast"></div>
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
-<input type="file" id="fileIn" accept=".json,application/json" hidden>
+<input type="file" id="fileIn" hidden>
 <input type="file" id="camIn" accept="image/*" capture="environment" hidden>
 <input type="file" id="galIn" accept="image/*" hidden>
 
 <script>
 "use strict";
-const APP_VERSION = '2026-11-04 · ejes';
+const APP_VERSION = '2026-11-04 · ejes · importar';
 /* ============ Constantes y estado ============ */
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
@@ -2048,19 +2048,27 @@ function openMenu(){
   });
 }
 $('#menuBtn').onclick=openMenu; $('#ptitle').onclick=openMenu;
-$('#fileIn').onchange=async e=>{
-  const f=e.target.files[0]; e.target.value=''; if(!f) return;
+async function importBackupFile(f){
+  if(!f) return;
+  let d;
+  try{ d=JSON.parse(await f.text()); }
+  catch(err){ toast(`«${f.name}» no es un respaldo: elige el archivo que termina en _respaldo.json`, 5000); return; }
+  if(d && d.app==='levantamiento' && d.levels && !d.project){ toast('Ese es el archivo «Para Revit». Para pasar el levantamiento usa ☰ → Respaldo completo (…_respaldo.json).', 6000); return; }
   try{
-    const d=JSON.parse(await f.text()); const p=normalize(d.project||d); if(!Array.isArray(p.walls)) throw 0;
+    const p=normalize(d.project||d); if(!Array.isArray(p.walls)) throw 0;
     p.id='p'+Date.now(); const imgs=d.images||{};
     for(const ph of p.levels.flatMap(L=>L.photos)){
       const nid='ph'+Date.now()+Math.floor(Math.random()*100000);
       if(imgs[ph.id]){ const blob=await (await fetch(imgs[ph.id])).blob(); await idb.put(nid, blob); }
       ph.id=nid;
     }
-    db.projects.unshift(p); openProject(p.id); closeSheet(); toast('Respaldo importado ✔');
-  }catch(err){ toast('Ese archivo no es un respaldo válido'); }
-};
+    db.projects.unshift(p); openProject(p.id); closeSheet(); toast(`Respaldo importado ✔ «${p.name}»`, 3500);
+  }catch(err){ toast(`«${f.name}» no es un respaldo válido de la app`, 5000); }
+}
+$('#fileIn').onchange=async e=>{ const f=e.target.files[0]; e.target.value=''; await importBackupFile(f); };
+// en el computador también se puede arrastrar el respaldo sobre la página
+document.addEventListener('dragover', e=>{ e.preventDefault(); });
+document.addEventListener('drop', e=>{ e.preventDefault(); const f=e.dataTransfer && e.dataTransfer.files[0]; if(f) importBackupFile(f); });
 
 /* ============ Inicio ============ */
 load();
