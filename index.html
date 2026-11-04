@@ -216,7 +216,16 @@ function normalize(p){
 }
 function levelH(L){ const v=[...L.labels.filter(l=>l.h!=null).map(l=>l.h), ...L.walls.filter(w=>w.h!=null).map(w=>w.h)]; return v.length?Math.max(...v):(db.settings.hDef??2.40); }
 function slabOf(L){ return L.slab ?? db.settings.slabDef ?? 0.20; }
-function nptOf(i, p){ p=p||P; const L=p.levels[i]; if(L.npt!=null) return L.npt; if(i===0) return 0; const B=p.levels[i-1]; return nptOf(i-1,p)+levelH(B)+slabOf(B); }
+function nptOf(i, p){
+  // NPT automático: hacia arriba desde el nivel de referencia (piso inferior + altura + losa);
+  // hacia abajo (subterráneos): piso superior − altura propia − losa propia
+  p=p||P; const L=p.levels[i]; if(L.npt!=null) return L.npt;
+  const anyRef=p.levels.some(x=>x.npt!=null);
+  const up=()=>{ const B=p.levels[i-1]; return nptOf(i-1,p)+levelH(B)+slabOf(B); };
+  if(!anyRef) return i===0 ? 0 : up();
+  if(p.levels.slice(0,i).some(x=>x.npt!=null)) return up();
+  return nptOf(i+1,p)-levelH(L)-slabOf(L);
+}
 function fmtNPT(v){ v=Math.round((v||0)*1000)/1000; return Math.abs(v)<0.0005 ? '±0.00' : (v>0?'+':'−')+Math.abs(v).toFixed(2); }
 function withLevel(i, fn){
   const prev=P.cur, us=undoStack, s0=sel; syncLevel(); loadLevel(P,i); undoStack=[]; sel=null;
@@ -231,8 +240,10 @@ function switchLevel(i){
   if(i===P.cur) return; syncLevel(); loadLevel(P,i); sel=null; draft=null; undoStack=[]; pending=null;
   save(); updateLevelPill(); renderProps(); draw(); toast(P.levels[i].name+' · piso '+fmtNPT(nptOf(i)));
 }
-function addLevel(copy){
+function addLevel(copy, below){
   syncLevel(); const i=P.levels.length, L=blankLevel(i);
+  if(below){ const nb=P.levels.filter(x=>/^Subterráneo/.test(x.name)).length; L.name = nb ? 'Subterráneo '+(nb+1) : 'Subterráneo'; }
+  else L.name = levelName(P.levels.filter(x=>!/^Subterráneo/.test(x.name)).length);
   if(copy){
     const src=P.levels[P.cur], map={};
     for(const w of src.walls.filter(w=>w.type==='ext')){ const nw=JSON.parse(JSON.stringify(w)); nw.id=P.seq++; map[w.id]=nw.id; delete nw.h; L.cnt.M=(L.cnt.M||0)+1; nw.name='M'+L.cnt.M; L.walls.push(nw); }
@@ -240,7 +251,8 @@ function addLevel(copy){
     L.aligns=src.aligns.filter(al=>map[al.a]!=null && map[al.b]!=null).map(al=>({a:map[al.a], b:map[al.b]}));
     L.dirty=src.dirty; L.rectified=src.rectified;
   }
-  P.levels.push(L); switchLevel(i);
+  if(below){ const at=P.cur; P.levels.splice(at,0,L); P.cur=at+1; switchLevel(at); }   // queda bajo el nivel actual
+  else { P.levels.push(L); switchLevel(i); }
 }
 async function deleteLevel(i){
   if(P.levels.length<2) return toast('Debe quedar al menos un nivel');
@@ -255,15 +267,18 @@ function openLevels(){
   const items=P.levels.map((L,i)=>`<div class="it ${i===P.cur?'cur':''}" style="flex-wrap:wrap">
       <div style="flex:1 1 100%"><input data-lname="${i}" value="${esc(L.name)}" style="font:inherit;font-weight:700;border:0;border-bottom:1px dashed var(--line);background:transparent;width:70%">
         <small style="display:block">${L.walls.length} muros · altura ${fmt(levelH(L))} · cielo ${fmtNPT(nptOf(i)+levelH(L))}</small></div>
-      <label style="font-size:12px;color:var(--muted)">Piso (NPT) <input data-lnpt="${i}" type="number" step="0.01" inputmode="decimal" value="${L.npt??''}" placeholder="${(nptOf(i)).toFixed(2)}" style="width:76px;padding:6px;border:1px solid var(--line);border-radius:8px"></label>
+      <label style="font-size:12px;color:var(--muted)">Piso (NPT) <input data-lnpt="${i}" type="text" inputmode="text" value="${L.npt??''}" placeholder="${(nptOf(i)).toFixed(2)}" style="width:76px;padding:6px;border:1px solid var(--line);border-radius:8px"><button data-lsign="${i}" title="Cambiar signo (para subterráneos)" style="padding:6px 9px">±</button></label>
       <label style="font-size:12px;color:var(--muted)">Losa sobre muros <input data-lslab="${i}" type="number" step="0.01" inputmode="decimal" value="${L.slab??''}" placeholder="${slabOf(L).toFixed(2)}" style="width:66px;padding:6px;border:1px solid var(--line);border-radius:8px"></label>
       ${i===P.cur?'<span class="sub" style="margin-left:auto">actual</span>':`<button data-lgo="${i}" style="margin-left:auto">Ir</button>`}
       <button class="danger" data-ldel="${i}">✕</button></div>`).join('');
   openSheet(`<h2>Niveles</h2>
-    <p style="color:var(--muted);font-size:13px">Los pisos se miden desde el <b>±0,00</b> del proyecto. Si dejas el piso vacío se calcula solo: piso del nivel inferior + altura de sus muros + losa.</p>
+    <p style="color:var(--muted);font-size:13px">Los pisos se miden desde el <b>±0,00</b> del proyecto. Si dejas el piso vacío se calcula solo: hacia arriba, piso inferior + altura de sus muros + losa; hacia abajo, piso superior − altura del subterráneo − su losa. Usa <b>±</b> para cotas negativas.</p>
     <div class="plist">${items}</div>
-    <div class="grid2"><button class="pri" id="lvAddCopy">+ Nivel copiando muros exteriores</button><button id="lvAdd">+ Nivel vacío</button></div>
-    <label class="tg">Ver el nivel inferior como guía<input type="checkbox" id="lvGhost" ${db.settings.ghost!==false?'checked':''}></label>
+    <h3>Agregar nivel arriba</h3>
+    <div class="grid2"><button class="pri" id="lvAddCopy">+ Copiando muros exteriores</button><button id="lvAdd">+ Vacío</button></div>
+    <h3>Agregar nivel abajo (subterráneo)</h3>
+    <div class="grid2"><button class="pri" id="lvAddBelowCopy">+ Copiando muros exteriores</button><button id="lvAddBelow">+ Vacío</button></div>
+    <label class="tg">Ver el nivel vecino como guía<input type="checkbox" id="lvGhost" ${db.settings.ghost!==false?'checked':''}></label>
     <div class="actions"><button class="pri" id="dOk">Listo</button></div>`);
   $$('[data-lname]').forEach(x=>x.onchange=()=>{ P.levels[+x.dataset.lname].name=x.value.trim()||levelName(+x.dataset.lname); save(); updateLevelPill(); });
   $$('[data-lnpt]').forEach(x=>x.onchange=()=>{ const v=num(x.value); P.levels[+x.dataset.lnpt].npt = v==null?null:r3(v); save(); updateLevelPill(); openLevels(); });
@@ -272,6 +287,9 @@ function openLevels(){
   $$('[data-ldel]').forEach(x=>x.onclick=()=>deleteLevel(+x.dataset.ldel));
   $('#lvAddCopy').onclick=()=>{ closeSheet(); addLevel(true); };
   $('#lvAdd').onclick=()=>{ closeSheet(); addLevel(false); };
+  $('#lvAddBelowCopy').onclick=()=>{ closeSheet(); addLevel(true, true); };
+  $('#lvAddBelow').onclick=()=>{ closeSheet(); addLevel(false, true); };
+  $$('[data-lsign]').forEach(x=>x.onclick=ev=>{ ev.preventDefault(); const i=+x.dataset.lsign, L=P.levels[i]; const v=(L.npt!=null?L.npt:nptOf(i)); L.npt=r3(-v); save(); updateLevelPill(); openLevels(); });
   $('#lvGhost').onchange=e=>{ db.settings.ghost=e.target.checked; save(); draw(); };
   $('#dOk').onclick=closeSheet;
 }
@@ -559,7 +577,11 @@ function draw(){
   const c=countFields(); $('#count').textContent = `Medidos ${c.m}/${c.n}`;
 }
 
-function ghostLevel(){ return (P && P.levels && P.cur>0 && db.settings.ghost!==false) ? P.levels[P.cur-1] : null; }
+function ghostLevel(){
+  // guía: el nivel de abajo; en el nivel más bajo (p. ej. subterráneo), el de arriba
+  if(!P || !P.levels || db.settings.ghost===false || P.levels.length<2) return null;
+  return P.cur>0 ? P.levels[P.cur-1] : P.levels[1];
+}
 /* ============ Enganches ============ */
 function endpoints(exclPts){ const r=[]; for(const w of P.walls) r.push(w.a,w.b); for(const d of P.dims) r.push(d.a,d.b); return exclPts? r.filter(p=>!exclPts.includes(p)) : r; }
 function rayHits(f, ux, uy, exclW){
