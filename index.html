@@ -106,6 +106,7 @@ button.ghost{background:transparent}
     <button class="tool" data-tool="vano"><svg viewBox="0 0 24 24"><path d="M2 20h5M17 20h5M7 20V6a10 10 0 0110 10v4"/></svg>Vano</button>
     <button class="tool" data-tool="col"><svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" fill="currentColor"/><path d="M3 12h4M17 12h4"/></svg>Pilar</button>
     <button class="tool" data-tool="dim"><svg viewBox="0 0 24 24"><path d="M4 18L20 6M4 14v8M20 2v8"/></svg>Cota</button>
+    <button class="tool" data-tool="axis"><svg viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2.8"/><path d="M12 8v14" stroke-dasharray="4 2 1 2"/></svg>Eje</button>
     <button class="tool" data-tool="txt"><svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13"/></svg>Texto</button>
     <button class="tool" data-tool="foto"><svg viewBox="0 0 24 24"><path d="M3 8h4l2-3h6l2 3h4v11H3z"/><circle cx="12" cy="13" r="3.5"/></svg>Foto</button>
     <button class="tool" data-tool="sel"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg>Elegir</button>
@@ -201,10 +202,10 @@ function saveNow(){
   }catch(e){ toast('No se pudo guardar en el teléfono'); }
 }
 /* ============ Niveles ============ */
-const LV_KEYS=['walls','dims','labels','openings','cols','photos','aligns','cnt','fcnt','dirty','rectified'];
+const LV_KEYS=['walls','dims','labels','openings','cols','axes','photos','aligns','cnt','fcnt','dirty','rectified'];
 const LV_NAMES=['1er','2do','3er','4to','5to','6to','7mo','8vo'];
 function levelName(i){ return (LV_NAMES[i]||(i+1)+'°')+' nivel'; }
-function normLevel(L){ for(const k of ['walls','dims','labels','openings','cols','photos','aligns']) L[k]=L[k]||[]; L.cnt=L.cnt||{}; L.fcnt=L.fcnt||0; return L; }
+function normLevel(L){ for(const k of ['walls','dims','labels','openings','cols','axes','photos','aligns']) L[k]=L[k]||[]; L.cnt=L.cnt||{}; L.fcnt=L.fcnt||0; return L; }
 function blankLevel(i){ return normLevel({id:'L'+Date.now()+Math.floor(Math.random()*1000), name:levelName(i), npt:null, slab:null, dirty:true, rectified:false}); }
 function loadLevel(p,i){ p.cur=i; const L=p.levels[i]; for(const k of LV_KEYS) p[k]=L[k]; }
 function syncLevel(p){ p=p||P; if(!p||!p.levels||p.walls===undefined) return; const L=p.levels[p.cur||0]; if(!L) return; for(const k of LV_KEYS) L[k]=p[k]; }   // solo si el nivel activo está cargado
@@ -250,6 +251,8 @@ function addLevel(copy, below){
     for(const w of src.walls.filter(w=>w.type==='ext')){ const nw=JSON.parse(JSON.stringify(w)); nw.id=P.seq++; map[w.id]=nw.id; delete nw.h; L.cnt.M=(L.cnt.M||0)+1; nw.name='M'+L.cnt.M; L.walls.push(nw); }
     for(const w of L.walls) for(const q of [w.a,w.b]) if(q.on!=null){ if(map[q.on]!=null) q.on=map[q.on]; else delete q.on; }
     L.aligns=src.aligns.filter(al=>map[al.a]!=null && map[al.b]!=null).map(al=>({a:map[al.a], b:map[al.b]}));
+    const amap={}; L.axes=(src.axes||[]).map(ax=>{ const n=JSON.parse(JSON.stringify(ax)); n.id=P.seq++; amap[ax.id]=n.id; if(n.refw!=null) n.refw=map[n.refw]??null; return n; });
+    for(const ax of L.axes) if(ax.refa!=null) ax.refa=amap[ax.refa]??null;
     L.dirty=src.dirty; L.rectified=src.rectified;
   }
   if(below){ const at=P.cur; P.levels.splice(at,0,L); P.cur=at+1; switchLevel(at); }   // queda bajo el nivel actual
@@ -329,10 +332,10 @@ function segDist(px,py,ax,ay,bx,by){
 }
 const len = e => Math.hypot(e.b.x-e.a.x, e.b.y-e.a.y);
 const num = v => { const n=parseFloat(String(v).replace(',','.')); return isNaN(n)?null:n; };
-function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='col'?p.cols : kind==='photo'?p.photos : p.labels; }
+function arrOf(kind, p){ p=p||P; return kind==='wall'?p.walls : kind==='dim'?p.dims : kind==='open'?p.openings : kind==='col'?p.cols : kind==='axis'?p.axes : kind==='photo'?p.photos : p.labels; }
 function getEl(s){ if(!s) return null; return arrOf(s.kind).find(e=>e.id===s.id)||null; }
 function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
-function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cols:P.cols, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
+function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cols:P.cols, axes:P.axes, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
   fcnt:P.fcnt, phMeta:P.photos.map(f=>({id:f.id,x:f.x,y:f.y,name:f.name,dir:f.dir}))}); }
 function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); P.dirty=true; }
 function undo(){
@@ -424,7 +427,61 @@ function opGeom(o, p){
 }
 /* ============ Pilares ============ */
 const COLDEF=0.25;
-function colFields(c){ return c.mode==='wall' ? ['w','d','off'] : ['w','d','r1v','r2v']; }
+/* ============ Ejes de referencia ============ */
+function axisDir(ax, p){
+  // siempre ortogonal a la planta (múltiplo de 90° respecto del eje principal)
+  p=p||P; const th=mainAxis(p.walls.filter(w=>len(w)>1e-6)); const a=Math.atan2(ax.b.y-ax.a.y, ax.b.x-ax.a.x);
+  const k=Math.round((a-th)/(Math.PI/2)); const g=th+k*Math.PI/2; return {x:Math.cos(g), y:Math.sin(g)};
+}
+function axisGeom(ax, p, depth){
+  p=p||P; depth=depth||0; const u=axisDir(ax,p), n={x:-u.y, y:u.x};
+  let p0={x:ax.a.x, y:ax.a.y}, src='croquis';
+  const W=ax.refw!=null ? p.walls.find(w=>w.id===ax.refw && len(w)>1e-6) : null;
+  const A=ax.refa!=null && depth<5 ? p.axes.find(a=>a.id===ax.refa) : null;
+  if(ax.off!=null && (W||A)){
+    if(W){ const Lw=len(W), nw={x:-(W.b.y-W.a.y)/Lw, y:(W.b.x-W.a.x)/Lw}; const d=(ax.face==='eje'?0:W.t/2)+ax.off; p0={x:W.a.x+nw.x*(ax.sg||1)*d, y:W.a.y+nw.y*(ax.sg||1)*d}; }
+    else { const g=axisGeom(A,p,depth+1); p0={x:g.p0.x+g.n.x*(ax.sg||1)*ax.off, y:g.p0.y+g.n.y*(ax.sg||1)*ax.off}; }
+    src='medida';
+  } else {
+    // sin medida propia: lo ubica un pilar sobre el eje que tenga medida su distancia a un muro paralelo
+    outer: for(const c of (p.cols||[])){ if(c.mode==='wall' || !(c.ax||[]).includes(ax.id)) continue;
+      for(const [wid,v,sg] of [[c.r1w,c.r1v,c.r1s],[c.r2w,c.r2v,c.r2s]]){
+        if(v==null) continue; const w=p.walls.find(x=>x.id===wid); if(!w||len(w)<1e-6) continue; const Lw=len(w), wu={x:(w.b.x-w.a.x)/Lw, y:(w.b.y-w.a.y)/Lw};
+        if(Math.abs(wu.x*u.x+wu.y*u.y)<0.99) continue; const nw={x:-wu.y, y:wu.x}; const cu={x:Math.cos(c.rot??0), y:Math.sin(c.rot??0)};
+        const half=Math.abs(nw.x*cu.x+nw.y*cu.y)*(c.w??COLDEF)/2+Math.abs(-nw.x*cu.y+nw.y*cu.x)*(c.d??COLDEF)/2;
+        const o=(sg||1)*(w.t/2+v+half); p0={x:w.a.x+nw.x*o, y:w.a.y+nw.y*o}; src=c.name; break outer; } }
+  }
+  const ta=(ax.a.x-p0.x)*u.x+(ax.a.y-p0.y)*u.y, tb=(ax.b.x-p0.x)*u.x+(ax.b.y-p0.y)*u.y;
+  const t0=Math.min(ta,tb), t1=Math.max(ta,tb);
+  return {p0, u, n, src, e1:{x:p0.x+u.x*t0, y:p0.y+u.y*t0}, e2:{x:p0.x+u.x*t1, y:p0.y+u.y*t1}};
+}
+function nextAxisName(u){
+  // ejes "horizontales" en pantalla con letras, "verticales" con números
+  const horiz=Math.abs(u.x)>=Math.abs(u.y);
+  const used=new Set(P.axes.map(a=>a.name));
+  if(horiz){ for(let i=0;i<26;i++){ const n=String.fromCharCode(65+i); if(!used.has(n)) return n; } return 'A'+P.axes.length; }
+  for(let i=1;i<100;i++){ if(!used.has(String(i))) return String(i); } return String(P.axes.length+1);
+}
+function nearestParallel(ax){
+  const u=axisDir(ax), cand=[];
+  for(const w of P.walls){ const L=len(w); if(L<1e-6) continue; const wu={x:(w.b.x-w.a.x)/L, y:(w.b.y-w.a.y)/L}; if(Math.abs(wu.x*u.x+wu.y*u.y)<0.99) continue;
+    const nw={x:-wu.y, y:wu.x}; const d=(ax.a.x-w.a.x)*nw.x+(ax.a.y-w.a.y)*nw.y; cand.push({w, d:Math.abs(d), sg:Math.sign(d)||1}); }
+  return cand.sort((a,b)=>a.d-b.d);
+}
+function axesNear(x, y, tolPx){
+  return P.axes.map(a=>{ const g=axisGeom(a); const d=Math.abs((x-g.p0.x)*g.n.x+(y-g.p0.y)*g.n.y)*view.s; return {a, g, d}; }).filter(o=>o.d<tolPx).sort((a,b)=>a.d-b.d);
+}
+function colAxisLines(c, p){ return (c.ax||[]).map(id=>(p||P).axes.find(a=>a.id===id)).filter(Boolean).map(a=>({a, g:axisGeom(a,p)})); }
+function colFields(c, p){
+  if(c.mode==='wall') return ['w','d','off'];
+  // una distancia a muro no hace falta si el pilar está sobre un eje paralelo a ese muro que ya tiene posición
+  p=p||P; const axl=colAxisLines(c,p); const f=['w','d'];
+  [[c.r1w,'r1v'],[c.r2w,'r2v']].forEach(([wid,k])=>{ const w=p.walls.find(x=>x.id===wid); if(!w||len(w)<1e-6) return;
+    const L=len(w), wu={x:(w.b.x-w.a.x)/L, y:(w.b.y-w.a.y)/L};
+    const cov=axl.some(o=>Math.abs(o.g.u.x*wu.x+o.g.u.y*wu.y)>0.99 && o.g.src!=='croquis' && o.g.src!==c.name);
+    if(!cov) f.push(k); });
+  return f;
+}
 function colGeom(c, p){
   // centro, ejes locales (u: ancho, v: largo) y esquinas del pilar
   p=p||P; const W=c.w??COLDEF, Dp=c.d??COLDEF;
@@ -442,12 +499,15 @@ function colGeom(c, p){
   cx=c.x; cy=c.y;
   const refs=[[c.r1w,c.r1v,c.r1s],[c.r2w,c.r2v,c.r2s]].map(([wid,v,sg])=>{ const w=p.walls.find(x=>x.id===wid); return w&&len(w)>1e-6 ? {w,v,sg:sg||1} : null; });
   // con las dos distancias medidas, el centro sale de la intersección de las dos líneas paralelas a los muros
-  const lines=refs.map(r=>{ if(!r || r.v==null) return null; const L=len(r.w), wx=(r.w.b.x-r.w.a.x)/L, wy=(r.w.b.y-r.w.a.y)/L, nx=-wy, ny=wx;
+  const axl=colAxisLines(c,p).map(o=>({px:o.g.p0.x, py:o.g.p0.y, dx:o.g.u.x, dy:o.g.u.y, nx:o.g.n.x, ny:o.g.n.y}));
+  const lines0=refs.map(r=>{ if(!r || r.v==null) return null; const L=len(r.w), wx=(r.w.b.x-r.w.a.x)/L, wy=(r.w.b.y-r.w.a.y)/L, nx=-wy, ny=wx;
     const half=Math.abs(nx*ux+ny*uy)*W/2+Math.abs(nx*(-uy)+ny*ux)*Dp/2; const off=r.sg*(r.w.t/2+r.v+half);
     return {px:r.w.a.x+nx*off, py:r.w.a.y+ny*off, dx:wx, dy:wy, nx, ny}; });
-  if(lines[0] && lines[1]){ const A=lines[0], B=lines[1], den=A.dx*B.dy-A.dy*B.dx;
-    if(Math.abs(den)>1e-9){ const t=((B.px-A.px)*B.dy-(B.py-A.py)*B.dx)/den; cx=A.px+A.dx*t; cy=A.py+A.dy*t; } }
-  else for(const l of lines) if(l){ const dd=(cx-l.px)*l.nx+(cy-l.py)*l.ny; cx-=l.nx*dd; cy-=l.ny*dd; }
+  // los ejes mandan; las distancias a muros solo cuentan en la dirección que ningún eje fija
+  const lines=[...axl]; for(const l of lines0) if(l && !axl.some(a=>Math.abs(a.dx*l.dx+a.dy*l.dy)>0.99)) lines.push(l);
+  let A=lines[0], B=lines.find(l=>A && Math.abs(A.dx*l.dy-A.dy*l.dx)>1e-6);
+  if(A && B){ const den=A.dx*B.dy-A.dy*B.dx; const t=((B.px-A.px)*B.dy-(B.py-A.py)*B.dx)/den; cx=A.px+A.dx*t; cy=A.py+A.dy*t; }
+  else if(A){ const dd=(cx-A.px)*A.nx+(cy-A.py)*A.ny; cx-=A.nx*dd; cy-=A.ny*dd; }
   return colCorners({c:{x:cx,y:cy}, ux, uy, W, D:Dp, refs});
 }
 function colCorners(g){ const vx=-g.uy, vy=g.ux, a=g.W/2, b=g.D/2, c=g.c;
@@ -486,6 +546,17 @@ function renderPlan(c, v, o){
   const S = q=>w2s(q,v);
   const isSel=(kind,id)=>o.sel && o.sel.kind===kind && o.sel.id===id;
   const wpx = w => Math.max(w.type==='ext'?3:2, w.t*v.s);
+  // ejes de referencia
+  for(const ax of (p.axes||[])){
+    const g=axisGeom(ax,p); const sl=isSel('axis',ax.id); const ext=1.0;
+    const a=S({x:g.e1.x-g.u.x*ext, y:g.e1.y-g.u.y*ext}), b=S({x:g.e2.x+g.u.x*ext, y:g.e2.y+g.u.y*ext});
+    c.strokeStyle= sl ? '#0f6fde' : (g.src==='croquis' ? 'rgba(194,65,12,.55)' : '#c2410c'); c.lineWidth=(sl?1.8:1.1)*k; c.setLineDash([14*k,4*k,2*k,4*k]);
+    c.beginPath(); c.moveTo(a.x,a.y); c.lineTo(b.x,b.y); c.stroke(); c.setLineDash([]);
+    const r=10*k, ux=(b.x-a.x), uy=(b.y-a.y), L=Math.hypot(ux,uy)||1;
+    for(const [q,sg] of [[a,-1],[b,1]]){ const cx=q.x+ux/L*r*sg, cy=q.y+uy/L*r*sg;
+      c.fillStyle='#fff'; c.strokeStyle=c.strokeStyle; c.lineWidth=1.4*k; c.beginPath(); c.arc(cx,cy,r,0,7); c.fill(); c.stroke();
+      c.fillStyle= sl ? '#0f6fde' : '#c2410c'; c.font=`700 ${11*k}px system-ui`; c.textAlign='center'; c.textBaseline='middle'; c.fillText(ax.name,cx,cy+0.5); }
+  }
   // muros
   const order = [...p.walls].sort((a,b)=>(a.type==='ext'?0:1)-(b.type==='ext'?0:1));
   for(const w of order){
@@ -593,7 +664,7 @@ function renderPlan(c, v, o){
   }
   if(o.ends){ c.fillStyle='#0f6fde'; for(const w of p.walls) for(const q of [S(w.a),S(w.b)]){ c.beginPath(); c.arc(q.x,q.y,2.5,0,7); c.fill(); } }
   if(o.sel){
-    const e=getEl(o.sel); if(e && e.a){ for(const q of [S(e.a),S(e.b)]){ c.fillStyle='#fff'; c.strokeStyle='#0f6fde'; c.lineWidth=2; c.beginPath(); c.arc(q.x,q.y,7,0,7); c.fill(); c.stroke(); } }
+    const e=getEl(o.sel); if(e && e.a && o.sel.kind!=='axis'){ for(const q of [S(e.a),S(e.b)]){ c.fillStyle='#fff'; c.strokeStyle='#0f6fde'; c.lineWidth=2; c.beginPath(); c.arc(q.x,q.y,7,0,7); c.fill(); c.stroke(); } }
   }
 }
 function drawAim(c, q, dir, k, preview){
@@ -610,7 +681,7 @@ function countFields(p){
   p=p||P; let n=0,m=0;
   for(const e of [...p.walls,...p.dims]){ n++; if(e.len!=null) m++; }
   for(const o of p.openings){ n+=2; if(o.len!=null) m++; if(o.off!=null) m++; }
-  for(const c of (p.cols||[])){ for(const f of colFields(c)){ n++; if(c[f]!=null) m++; } }
+  for(const c of (p.cols||[])){ for(const f of colFields(c,p)){ n++; if(c[f]!=null) m++; } }
   return {n,m};
 }
 function draw(){
@@ -623,6 +694,7 @@ function draw(){
   if(draft){
     const a=w2s(draft.a), b=w2s(draft.b);
     if(draft.kind==='dim'){ ctx.strokeStyle='#7c3aed'; ctx.lineWidth=1.5; ctx.setLineDash([6,4]); }
+    else if(draft.kind==='axis'){ ctx.strokeStyle='#c2410c'; ctx.lineWidth=1.5; ctx.setLineDash([14,4,2,4]); }
     else { ctx.strokeStyle= draft.kind==='ext'?'rgba(43,43,43,.6)':'rgba(122,127,135,.6)'; ctx.lineCap='square';
       ctx.lineWidth=Math.max(3,(draft.kind==='ext'?db.settings.tExt:db.settings.tTab)*view.s); }
     ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); ctx.setLineDash([]);
@@ -706,12 +778,17 @@ function hitTest(sx, sy){
   if(best) return best;
   for(const d of P.dims){ const a=w2s(d.a), b=w2s(d.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); if(r.d<18 && r.d<bd){ bd=r.d; best={kind:'dim',id:d.id}; } }
   for(const w of P.walls){ const a=w2s(w.a), b=w2s(w.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y); const tol=Math.max(18, w.t*view.s/2+8); if(r.d<tol && r.d<bd){ bd=r.d; best={kind:'wall',id:w.id}; } }
+  if(best) return best;
+  for(const ax of P.axes){ const g=axisGeom(ax); const a=w2s({x:g.e1.x-g.u.x, y:g.e1.y-g.u.y}), b=w2s({x:g.e2.x+g.u.x, y:g.e2.y+g.u.y});
+    const ends=[a,b].map(q=>Math.hypot(q.x-sx,q.y-sy)); const r=segDist(sx,sy,a.x,a.y,b.x,b.y);
+    const d=Math.min(r.d, ...ends.map(e=>Math.max(0,e-14))); if(d<12 && d<bd){ bd=d; best={kind:'axis',id:ax.id,field:'off'}; } }
   return best;
 }
 function selCenter(){
   const e=getEl(sel); if(!e) return null;
   if(sel.kind==='open'){ const g=opGeom(e); return g? w2s({x:(g.p1.x+g.p2.x)/2, y:(g.p1.y+g.p2.y)/2}) : null; }
   if(sel.kind==='col'){ const g=colGeom(e); return g? w2s(g.c) : null; }
+  if(sel.kind==='axis'){ const g=axisGeom(e); return w2s({x:(g.e1.x+g.e2.x)/2, y:(g.e1.y+g.e2.y)/2}); }
   if(e.a) return w2s({x:(e.a.x+e.b.x)/2, y:(e.a.y+e.b.y)/2});
   return w2s(e);
 }
@@ -722,7 +799,7 @@ function ensureVisible(){
   if(c.y<110){ view.oy+=110-c.y; }
 }
 function select(s){ if(s && s.kind==='photo'){ openPhoto(s.id); return; } sel=s; renderProps(); ensureVisible(); draw(); }
-const FIELDS = {wall:['len'], dim:['len'], open:['len','off'], label:['h'], col:['w','d']};
+const FIELDS = {wall:['len'], dim:['len'], open:['len','off'], label:['h'], col:['w','d'], axis:['off']};
 const fieldsOf = (kind, e) => kind==='col' ? colFields(e) : FIELDS[kind];
 function measurable(){
   return [...P.walls.map(e=>({e,kind:'wall'})), ...P.dims.map(e=>({e,kind:'dim'})), ...P.openings.map(e=>({e,kind:'open'})), ...P.cols.map(e=>({e,kind:'col'}))].sort((x,y)=>x.e.id-y.e.id);
@@ -741,7 +818,27 @@ function renderProps(){
   box.style.display='block';
   const lm = lastMeasure!=null ? `<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>` : '';
   const btLine = bt.state==='on' ? `<div class="row waiting">● Dispara la huincha: se llena el campo marcado en azul</div>` : '';
-  if(sel.kind==='col'){
+  if(sel.kind==='axis'){
+    const g=axisGeom(e); const W=e.refw!=null?P.walls.find(x=>x.id===e.refw):null, A=e.refa!=null?P.axes.find(x=>x.id===e.refa):null; const R=W||A;
+    const on=P.cols.filter(c=>(c.ax||[]).includes(e.id)).map(c=>c.name);
+    box.innerHTML=`<div class="row"><span class="name">Eje</span><input id="axName" value="${esc(e.name)}" style="width:70px;font-weight:700">
+        <span class="val ${g.src!=='croquis'?'okv':'miss'}" style="font-size:16px">${g.src==='medida'?'medido':g.src==='croquis'?'sin medir':'ubicado por '+esc(g.src)}</span><button class="ghost" id="pClose">✕</button></div>
+      <div class="row">${R?`<label>Dist. a ${esc(R.name)} <input id="axOff" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.off??''}" style="width:72px"></label>`:'<span class="sub">Sin muro paralelo de referencia</span>'}
+        ${W?`<span class="seg"><button data-axf="cara" class="${e.face!=='eje'?'on':''}">Desde cara</button><button data-axf="eje" class="${e.face==='eje'?'on':''}">Desde eje del muro</button></span>`:''}</div>
+      <div class="row"><span class="sub">${on.length?'Pilares sobre el eje: '+on.join(', ')+'. ':''}Puedes medir el eje aquí o medir un pilar que esté sobre él.</span></div>
+      <div class="row">${lastMeasure!=null&&R?`<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>`:''}<button id="axRef">Cambiar referencia</button><button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
+      ${bt.state==='on'&&R?'<div class="row waiting">● Dispara la huincha: distancia del muro al eje</div>':''}`;
+    $('#axName').onchange=ev=>{ pushUndo(); e.name=ev.target.value.trim()||e.name; save(); draw(); };
+    if($('#axOff')) $('#axOff').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.off=v==null?null:r3(v); save(); renderProps(); draw(); };
+    box.querySelectorAll('[data-axf]').forEach(b=>b.onclick=()=>{ pushUndo(); e.face=b.dataset.axf; save(); renderProps(); draw(); });
+    $('#axRef').onclick=()=>{
+      // recorre muros paralelos y luego otros ejes paralelos
+      const u=g.u, opts=[...nearestParallel(e).map(o=>({w:o.w.id, sg:o.sg})),
+        ...P.axes.filter(a=>a!==e).map(a=>({a, g:axisGeom(a)})).filter(o=>Math.abs(o.g.u.x*u.x+o.g.u.y*u.y)>0.99).map(o=>({ax:o.a.id, sg:Math.sign((g.p0.x-o.g.p0.x)*o.g.n.x+(g.p0.y-o.g.p0.y)*o.g.n.y)||1}))];
+      if(!opts.length) return toast('No hay muros ni ejes paralelos');
+      const cur=opts.findIndex(o=>(o.w!=null&&o.w===e.refw)||(o.ax!=null&&o.ax===e.refa)); const nx=opts[(cur+1)%opts.length];
+      pushUndo(); e.refw=nx.w??null; e.refa=nx.ax??null; e.sg=nx.sg; e.off=null; save(); renderProps(); draw(); };
+  } else if(sel.kind==='col'){
     const f=sel.field||colFields(e)[0]; const w=e.mode==='wall'?P.walls.find(x=>x.id===e.wall):null;
     const R=[e.r1w,e.r2w].map(id=>P.walls.find(x=>x.id===id));
     const inp=(k,lab,ph)=>`<label>${lab} <input data-cf="${k}" class="${f===k?'tgt':''}" style="width:64px" type="number" inputmode="decimal" step="0.01" value="${e[k]??''}" placeholder="${ph||''}"></label>`;
@@ -750,7 +847,9 @@ function renderProps(){
         <span class="val ${e.w!=null&&e.d!=null?'okv':'miss'}" style="font-size:18px">${fmt(e.w)} × ${fmt(e.d)}</span><button class="ghost" id="pClose">✕</button></div>
       <div class="row">${inp('w', w?'Ancho (a lo largo)':'Ancho', fmt(COLDEF))}${inp('d', w?'Largo (perpendicular)':'Largo', fmt(COLDEF))}</div>
       ${w?`<div class="row">${inp('off','Dist.●')}<label>desde cara</label>${FS}</div>`
-         :`<div class="row">${R[0]?inp('r1v','Dist. a '+esc(R[0].name)):''}${R[1]?inp('r2v','Dist. a '+esc(R[1].name)):''}<span class="sub">de la cara del muro a la cara del pilar</span></div>`}
+         :`<div class="row">${R[0]&&colFields(e).includes('r1v')?inp('r1v','Dist. a '+esc(R[0].name)):''}${R[1]&&colFields(e).includes('r2v')?inp('r2v','Dist. a '+esc(R[1].name)):''}<span class="sub">${colFields(e).length>2?'de la cara del muro a la cara del pilar':'posición dada por sus ejes'}</span></div>`}
+      ${!w?`<div class="row"><label>Ejes</label>${(e.ax||[]).map(id=>P.axes.find(a=>a.id===id)).filter(Boolean).map(a=>`<button data-unax="${a.id}" title="Quitar del eje">◎ ${esc(a.name)} ✕</button>`).join('')}
+        ${(e.ax||[]).length<2&&P.axes.length?'<button id="pOnAxis">+ Sobre eje…</button>':''}</div>`:''}
       <div class="row">${lastMeasure!=null?`<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>`:''}
         ${w?'<button id="pRef">● Otra esquina</button>':'<button id="pRefs">Cambiar referencias</button>'}
         <button id="pNext">Siguiente ›</button><button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
@@ -759,6 +858,8 @@ function renderProps(){
       x.onfocus=()=>{ sel.field=x.dataset.cf; box.querySelectorAll('input[data-cf]').forEach(y=>y.classList.toggle('tgt', y===x)); };
       x.onchange=()=>{ const v=num(x.value); pushUndo(); e[x.dataset.cf]= v==null?null:r3(v); save(); renderProps(); draw(); };
     });
+    if($('#pOnAxis')) $('#pOnAxis').onclick=()=>startPending('colaxis', e);
+    box.querySelectorAll('[data-unax]').forEach(b=>b.onclick=()=>{ pushUndo(); const g=colGeom(e); e.ax=(e.ax||[]).filter(id=>id!==+b.dataset.unax); e.x=g.c.x; e.y=g.c.y; save(); renderProps(); draw(); });
     if($('#pRef')) $('#pRef').onclick=()=>{ pushUndo(); const g=colGeom(e); if(g){ e.t=g.t/g.L; } e.ref=e.ref==='b'?'a':'b'; e.off=null; sel.field='off'; save(); renderProps(); draw(); toast('Mide la distancia desde la otra esquina'); };
     if($('#pRefs')) $('#pRefs').onclick=()=>{ pushUndo(); const g=colGeom(e); const all=colRefsFor(g.c.x,g.c.y);
       // alterna a los siguientes muros más cercanos
@@ -852,7 +953,8 @@ function renderProps(){
   if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
   $('#pDel').onclick=()=>{
     pushUndo(); const arr=arrOf(sel.kind); arr.splice(arr.indexOf(e),1);
-    if(sel.kind==='wall'){ for(const cl of P.cols) if(cl.mode==='wall' && cl.wall===e.id){ const g=colGeom(cl); cl.mode='free'; cl.x=g.c.x; cl.y=g.c.y; cl.rot=Math.atan2(g.uy,g.ux); delete cl.wall; }
+    if(sel.kind==='axis'){ for(const c of P.cols) if(c.ax){ const g=colGeom(c); if(c.ax.includes(e.id)){ c.x=g.c.x; c.y=g.c.y; } c.ax=c.ax.filter(id=>id!==e.id); } for(const a of P.axes) if(a.refa===e.id){ a.refa=null; a.off=null; } }
+    if(sel.kind==='wall'){ for(const a of P.axes) if(a.refw===e.id){ a.refw=null; a.off=null; } for(const cl of P.cols) if(cl.mode==='wall' && cl.wall===e.id){ const g=colGeom(cl); cl.mode='free'; cl.x=g.c.x; cl.y=g.c.y; cl.rot=Math.atan2(g.uy,g.ux); delete cl.wall; }
       for(const cl of P.cols) if(cl.mode!=='wall'){ if(cl.r1w===e.id){ cl.r1w=null; cl.r1v=null; } if(cl.r2w===e.id){ cl.r2w=null; cl.r2v=null; } }
       P.openings=P.openings.filter(o=>o.wall!==e.id); P.aligns=P.aligns.filter(al=>al.a!==e.id&&al.b!==e.id); }
     sel=null; save(); renderProps(); draw();
@@ -862,12 +964,20 @@ let moreOpen=false;
 let pending=null;   // acción que espera un toque: {type:'split'|'align', id}
 function startPending(type, w){
   pending={type, id:w.id}; setTool('sel');
-  $('#hint').innerHTML = type==='split' ? `<b style="color:var(--acc)">Toca sobre ${esc(w.name)} el punto donde se divide.</b>` : `<b style="color:var(--acc)">Toca el muro que va en el mismo eje que ${esc(w.name)}.</b>`;
+  if(type==='colaxis'){ $('#hint').innerHTML=`<b style="color:var(--acc)">Toca el eje sobre el que va ${esc(w.name)}.</b>`; }
+  else $('#hint').innerHTML = type==='split' ? `<b style="color:var(--acc)">Toca sobre ${esc(w.name)} el punto donde se divide.</b>` : `<b style="color:var(--acc)">Toca el muro que va en el mismo eje que ${esc(w.name)}.</b>`;
   $('#hint').innerHTML += ' <span style="pointer-events:auto;text-decoration:underline" id="pendCancel">Cancelar</span>';
   $('#pendCancel').onclick=()=>{ pending=null; setTool('sel'); };
 }
 function moveCoincident(o, nx, ny){ const ox=o.x, oy=o.y; for(const z of endpoints()) if(Math.abs(z.x-ox)<1e-6 && Math.abs(z.y-oy)<1e-6){ z.x=nx; z.y=ny; } }
 function handlePending(sx, sy){
+  if(pending.type==='colaxis'){
+    const c=P.cols.find(x=>x.id===pending.id); pending=null; setTool('sel'); if(!c) return;
+    const hit=axesNear(s2w(sx,sy).x, s2w(sx,sy).y, 26)[0]; if(!hit){ toast('Toca sobre un eje'); select({kind:'col', id:c.id}); return; }
+    pushUndo(); const g=colGeom(c); c.x=g.c.x; c.y=g.c.y;
+    c.ax=(c.ax||[]).filter(id=>{ const o=P.axes.find(a=>a.id===id); if(!o) return false; const og=axisGeom(o); return Math.abs(og.u.x*hit.g.u.x+og.u.y*hit.g.u.y)<0.99; });
+    c.ax.push(hit.a.id); sel={kind:'col', id:c.id}; save(); renderProps(); draw(); toast(`${c.name} sobre el eje ${hit.a.name}`); return;
+  }
   const w=P.walls.find(x=>x.id===pending.id); const type=pending.type; pending=null; setTool('sel'); if(!w) return;
   if(type==='split'){
     const a=w2s(w.a), b=w2s(w.b); const r=segDist(sx,sy,a.x,a.y,b.x,b.y);
@@ -1014,7 +1124,7 @@ function rectify(){
   pushUndo();
   const disp=nodes.map((q,k)=>({x:q.x, y:q.y, dx:X[2*k]-q.x, dy:X[2*k+1]-q.y}));
   const move=o=>{ let sw=0,sx=0,sy=0; for(const d of disp){ const wt=1/((d.x-o.x)**2+(d.y-o.y)**2+1e-6); sw+=wt; sx+=wt*d.dx; sy+=wt*d.dy; } o.x+=sx/sw; o.y+=sy/sw; };
-  P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); }); P.cols.forEach(c=>{ if(c.mode!=='wall') move(c); });
+  P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); }); P.cols.forEach(c=>{ if(c.mode!=='wall') move(c); }); P.axes.forEach(a=>{ move(a.a); move(a.b); });
   for(const q of pts){ const k=idx.get(q); q.x=X[2*k]; q.y=X[2*k+1]; }
   const bad=wallInfo.filter(o=>o.w.len!=null && Math.abs(len(o.w)-o.target)>0.02).map(o=>({w:o.w, got:len(o.w)-(o.target-o.w.len)}));
   const th=SQ.th, angled=SQ.angled.map(w=>{ let deg=(Math.atan2(w.b.y-w.a.y,w.b.x-w.a.x)-th)/DEG; deg=((deg%180)+180)%180; return {w, deg:Math.round(deg*10)/10}; });
@@ -1064,9 +1174,10 @@ function assignMeasure(m, manual){
   const e=getEl(sel); if(!e || !FIELDS[sel.kind]) return false;
   const f = sel.kind==='label' ? 'h' : (sel.field || 'len'); pushUndo(); e[f]=r3(m); save();
   const COLF={w:'ancho', d:'largo', off:'distancia', r1v:'distancia 1', r2v:'distancia 2'};
+  if(sel.kind==='axis'){ toast(`Eje ${e.name}: ${fmt(m)} m`); vibrate(40); renderProps(); draw(); return true; }
   const lbl = sel.kind==='open' ? `${e.name} ${f==='len'?'ancho':f==='off'?'distancia':'alto'}` : sel.kind==='label' ? `${e.text} altura` : sel.kind==='col' ? `${e.name} ${COLF[f]||f}` : e.name;
   toast(`${lbl} = ${fmt(m)} m`); vibrate(40);
-  if(db.settings.auto && !manual && sel.kind!=='label'){
+  if(db.settings.auto && !manual && sel.kind!=='label' && sel.kind!=='axis'){
     const rest = fieldsOf(sel.kind, e).find(x=>e[x]==null);
     if(rest) sel={...sel, field:rest}; else { const n=nextUnmeasured(e.id); if(n) sel=n; }
   }
@@ -1145,6 +1256,7 @@ function setTool(t){
   const Hn={ext:'Arrastra para dibujar un <b>muro de cerramiento</b>. Se engancha a extremos, muros y 45°/90°.',
            tab:'Arrastra para dibujar un <b>tabique</b>. Puede partir o terminar sobre un muro.',
            vano:'',
+           axis:'Arrastra para trazar un <b>eje de referencia</b> (siempre a escuadra). Luego mide su distancia a un muro, o ubica un pilar sobre él.',
            col:'Toca <b>sobre un muro</b> para un pilar en el muro, o <b>dentro de un recinto</b> para un pilar aislado (se refiere a los 2 muros más cercanos).',
            dim:'Arrastra para una <b>cota libre</b>: diagonales de control, retiros…',
            txt:'Toca donde quieras escribir el <b>nombre del recinto</b>.',
@@ -1172,7 +1284,7 @@ cv.addEventListener('pointerdown', e=>{
   }
   if(pts.size>2) return;
   gest={type:'one', start:p, moved:false, v0:{...view}};
-  if(tool==='ext'||tool==='tab'||tool==='dim'){
+  if(tool==='ext'||tool==='tab'||tool==='dim'||tool==='axis'){
     const s=snapPoint(p.x,p.y,null); draft={kind:tool, a:ptOf(s), b:{x:s.x,y:s.y}, sa:s, snap:null};
   } else if(tool==='foto'){
     const h=hitTest(p.x,p.y);
@@ -1180,7 +1292,11 @@ cv.addEventListener('pointerdown', e=>{
     gest.foto=true;
   } else if(tool==='sel'){
     const el=getEl(sel);
-    if(el && el.a){
+    if(el && sel.kind==='axis'){
+      const g=axisGeom(el); const d=Math.abs((s2w(p.x,p.y).x-g.p0.x)*g.n.x+(s2w(p.x,p.y).y-g.p0.y)*g.n.y)*view.s;
+      if(d<22){ if(g.src!=='croquis') toast('La posición del eje ya está medida'); else { pushUndo(); gest={type:'axmove', ax:el, n:g.n, a0:{...el.a}, b0:{...el.b}, start:p, moved:false}; return; } }
+    }
+    if(el && el.a && sel.kind!=='axis'){
       for(const end of ['a','b']){ const q=w2s(el[end]); if(Math.hypot(q.x-p.x,q.y-p.y)<24){
         const o=el[end]; const moving=endpoints().filter(z=>Math.abs(z.x-o.x)<1e-6&&Math.abs(z.y-o.y)<1e-6);
         const exclW=new Set(P.walls.filter(w=>moving.includes(w.a)||moving.includes(w.b)));
@@ -1230,6 +1346,11 @@ cv.addEventListener('pointermove', e=>{
     let dx=(p.x-gest.start.x)/view.s, dy=(p.y-gest.start.y)/view.s; dx=Math.round(dx/0.01)*0.01; dy=Math.round(dy/0.01)*0.01;
     for(const m of gest.moving){ m.z.x=m.x+dx; m.z.y=m.y+dy; } reattach(); draw(); return;
   }
+  if(gest.type==='axmove'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
+    const d=((p.x-gest.start.x)*gest.n.x+(p.y-gest.start.y)*gest.n.y)/view.s;
+    gest.ax.a={x:gest.a0.x+gest.n.x*d, y:gest.a0.y+gest.n.y*d}; gest.ax.b={x:gest.b0.x+gest.n.x*d, y:gest.b0.y+gest.n.y*d}; draw(); return;
+  }
   if(gest.type==='colmove'){
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return; const cl=gest.col;
     if(cl.mode==='wall'){ const w=wallOf(cl); if(w){ const a=w2s(w.a), b=w2s(w.b); cl.t=segDist(p.x,p.y,a.x,a.y,b.x,b.y).t; } }
@@ -1250,7 +1371,7 @@ function endPointer(e){
   if(g.type==='aim'){ if(!g.moved){ undoStack.pop(); openPhoto(g.f.id); } else { save(); draw(); toast(g.f.name+': dirección actualizada'); } return; }
   if(g.foto && g.moved && aimDraft){ const a=aimDraft; aimDraft=null; draw(); askPhoto({x:a.x, y:a.y, dir:a.dir}); return; }
   aimDraft=null;
-  if(g.type==='drag'||g.type==='slide'||g.type==='move'||g.type==='colmove'){
+  if(g.type==='drag'||g.type==='slide'||g.type==='move'||g.type==='colmove'||g.type==='axmove'){
     if(!g.moved){ undoStack.pop(); if(pending){ handlePending(g.start.x,g.start.y); return; } }
     save(); draw(); return; }
   if(draft){
@@ -1258,6 +1379,8 @@ function endPointer(e){
     if(!g.moved || len(d)*view.s<12 || len(d)<0.05){ select(hitTest(g.start.x,g.start.y)); return; }
     pushUndo();
     if(d.kind==='dim'){ const el={id:P.seq++, name:nextName('C'), a:d.a, b:d.b, len:null}; P.dims.push(el); sel={kind:'dim',id:el.id}; }
+    else if(d.kind==='axis'){ const el={id:P.seq++, a:{x:d.a.x,y:d.a.y}, b:{x:d.b.x,y:d.b.y}, off:null, face:'cara'}; el.name=nextAxisName(axisDir(el));
+      const r=nearestParallel(el)[0]; if(r){ el.refw=r.w.id; el.sg=r.sg; } P.axes.push(el); sel={kind:'axis', id:el.id, field:'off'}; }
     else { const el={id:P.seq++, type:d.kind, name:nextName(d.kind==='ext'?'M':'T'), a:d.a, b:d.b, t:d.kind==='ext'?db.settings.tExt:db.settings.tTab, len:null};
       if(!db.settings.ortho){ const r=relAngle(el,0); el.ortho = r.d<0.5*DEG; } P.walls.push(el); sel={kind:'wall',id:el.id}; }
     save(); renderProps(); ensureVisible(); draw(); return;
@@ -1272,7 +1395,9 @@ function endPointer(e){
     if(on) el={id:P.seq++, mode:'wall', name:nextName('PL'), wall:on.w.id, t:on.t, ref:'a', w:null, d:null, off:null};
     else { const q=s2w(g.start.x,g.start.y); const [r1,r2]=colRefsFor(q.x,q.y);
       el={id:P.seq++, mode:'free', name:nextName('PL'), x:q.x, y:q.y, rot:mainAxis(P.walls.filter(w=>len(w)>1e-6)), w:null, d:null,
-          r1w:r1?r1.w.id:null, r1s:r1?r1.sg:1, r1v:null, r2w:r2?r2.w.id:null, r2s:r2?r2.sg:1, r2v:null}; }
+          r1w:r1?r1.w.id:null, r1s:r1?r1.sg:1, r1v:null, r2w:r2?r2.w.id:null, r2s:r2?r2.sg:1, r2v:null, ax:[]};
+      for(const o of axesNear(q.x,q.y,16)) if(el.ax.length<2 && !el.ax.some(id=>{ const g=axisGeom(P.axes.find(a=>a.id===id)); return Math.abs(g.u.x*o.g.u.x+g.u.y*o.g.u.y)>0.99; })) el.ax.push(o.a.id);
+      if(el.ax.length) toast(el.name+' sobre el eje '+el.ax.map(id=>P.axes.find(a=>a.id===id).name).join(' y ')); }
     P.cols.push(el); sel={kind:'col', id:el.id, field:'w'}; save(); renderProps(); ensureVisible(); draw(); return;
   }
   if(tool==='vano'){
@@ -1510,7 +1635,7 @@ async function shareOrDownload(blob, filename){
 function dxfStr(s){ return String(s).replace(/[^\x20-\x7e]/g, c=>'\\U+'+c.charCodeAt(0).toString(16).toUpperCase().padStart(4,'0')); }
 function buildDXF(){
   syncLevel(); const L=[]; const add=(...a)=>{ for(const x of a) L.push(String(x)); }; const f=n=>(+n).toFixed(4);
-  const base=[['MUROS',7],['TABIQUES',8],['EJES',9],['PILARES',1],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
+  const base=[['MUROS',7],['TABIQUES',8],['EJES',9],['EJES_REF',30],['PILARES',1],['VANOS',4],['COTAS',3],['SIN_MEDIR',30],['DIAGONALES',6],['RECINTOS',5],['FOTOS',1],['NOTAS',2]];
   const multi=P.levels.length>1; const layers=[];
   P.levels.forEach((Lv,i)=>{ for(const [n,c] of base) layers.push([(multi?'N'+(i+1)+'_':'')+n, c]); });
   add(0,'SECTION',2,'HEADER',9,'$ACADVER',1,'AC1009',0,'ENDSEC');
@@ -1539,6 +1664,11 @@ function buildDXF(){
       const ang=upDeg(w.a,w.b); const tnx=-Math.sin(ang), tny=Math.cos(ang);
       const mx=(w.a.x+w.b.x)/2, myD=-(w.a.y+w.b.y)/2, off=h+0.12;
       text(w.len!=null?'COTAS':'SIN_MEDIR', mx+tnx*off, -(myD+tny*off), 0.12, (w.len!=null?fmt(w.len)+faceTag(w):'?')+'  ('+w.name+')', ang*180/Math.PI);
+    }
+    for(const ax of p.axes){
+      const g=axisGeom(ax,p); const a={x:g.e1.x-g.u.x, y:g.e1.y-g.u.y}, b={x:g.e2.x+g.u.x, y:g.e2.y+g.u.y}; line('EJES_REF', a, b);
+      for(const [q,sg] of [[a,-1],[b,1]]){ const c2={x:q.x+g.u.x*0.25*sg, y:q.y+g.u.y*0.25*sg};
+        add(0,'CIRCLE',8,pre+'EJES_REF',10,f(c2.x+DX),20,f(-c2.y),30,0,40,f(0.25)); text('EJES_REF', c2.x, c2.y+0.07, 0.18, ax.name, 0); }
     }
     for(const cl of p.cols){
       const g=colGeom(cl,p); if(!g) continue; for(let i=0;i<4;i++) line('PILARES', g.pts[i], g.pts[(i+1)%4]);
@@ -1601,10 +1731,12 @@ function buildCSV(){
   P.levels.forEach((Lv,li)=>withLevel(li, ()=>{
     const N=Lv.name+' ('+fmtNPT(nptOf(li))+')';
     for(const {e,kind} of measurable()){
-      if(kind==='col'){ rows.push([N, e.name, 'Pilar', colLoc(e), '', (e.w==null?'':n(e.w))+' x '+(e.d==null?'':n(e.d)), e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall'?n(e.off):[n(e.r1v),n(e.r2v)].join(' / '), '', '']); continue; }
+      if(kind==='col'){ rows.push([N, e.name, 'Pilar', colLoc(e), '', (e.w==null?'':n(e.w))+' x '+(e.d==null?'':n(e.d)), e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall'?n(e.off):colFields(e).filter(k=>k==='r1v'||k==='r2v').map(k=>n(e[k])).join(' / ')||'por ejes', '', '']); continue; }
       if(kind==='open'){ const w=wallOf(e); const g=opGeom(e); rows.push([N, e.name, OPNAME[e.kind], (w?w.name+(e.off!=null?' (desde '+refLabel(e)+')':''):'')+(isWin(e.kind)?' antepecho '+fmt(sillOf(e)):''), '', n(e.len), e.off!=null?FACES[faceOf(e)]:'', n(e.off), n(e.h), g?n(g.sw):'']); }
       else rows.push([N, e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), '', kind==='wall'?n(e.t):'', n(e.len), e.len!=null?FACES[faceOf(e)]:'', '', '', n(len(e))]);
     }
+    for(const ax of P.axes){ const g=axisGeom(ax); const R=ax.refw!=null?P.walls.find(x=>x.id===ax.refw):ax.refa!=null?P.axes.find(x=>x.id===ax.refa):null;
+      rows.push([N, ax.name, 'Eje', g.src==='medida'&&R?'a '+R.name+(ax.face==='eje'?' (eje)':' (cara)'):g.src==='croquis'?'sin medir':'por '+g.src, '', '', '', n(ax.off), '', '']); }
     for(const l of P.labels) rows.push([N, '', 'Recinto', l.text, '', '', '', '', n(l.h), '']);
     for(const ph of P.photos) for(const a of ph.arrows) rows.push([N, ph.name+'-'+a.name, 'Cota en foto', ph.caption||'', '', n(a.len), '', '', '', '']);
   }));
@@ -1621,7 +1753,9 @@ async function ensurePdf(){
 function colLoc(c){
   if(c.mode==='wall'){ const w=wallOf(c); return (w?'en '+w.name:'')+(c.off!=null?', desde '+refLabel(c):''); }
   const R=[[c.r1w,c.r1v],[c.r2w,c.r2v]].map(([id,v])=>{ const w=P.walls.find(x=>x.id===id); return w?`a ${w.name}: ${v==null?'?':fmt(v)}`:null; }).filter(Boolean);
-  return 'aislado'+(R.length?' ('+R.join(', ')+')':'');
+  const A=(c.ax||[]).map(id=>P.axes.find(a=>a.id===id)).filter(Boolean).map(a=>'eje '+a.name);
+  const need=colFields(c); const R2=R.filter((r,i)=>need.includes(i?'r2v':'r1v'));
+  return 'aislado'+(A.length?' sobre '+A.join(' y '):'')+(R2.length?' ('+R2.join(', ')+')':'');
 }
 function refLabel(o){
   // nombre del muro que llega a la esquina desde donde se midió la distancia
@@ -1717,13 +1851,25 @@ async function buildReport(){
       const rows=measurable().map(({e,kind})=>{
         if(kind==='open'){ const w=wallOf(e); return [e.name, OPNAME[e.kind], (w?'en '+w.name:'')+(e.off!=null?', desde '+refLabel(e):'')+(isWin(e.kind)?`, antepecho ${fmt(sillOf(e))}`:''), '', e.len==null?'sin medir':fmt(e.len), e.off!=null?FACES[faceOf(e)]:'', v(e.off)||(e.off==null?'sin medir':''), v(e.h)]; }
         if(kind==='col'){ const sec = e.w==null||e.d==null ? 'sin medir' : `${fmt(e.w)} × ${fmt(e.d)}`;
-          return [e.name, 'Pilar', colLoc(e), '', sec, e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall' ? (v(e.off)||'sin medir') : [e.r1v,e.r2v].map(x=>x==null?'?':fmt(x)).join(' / '), '']; }
+          const need=colFields(e).filter(k=>k==='r1v'||k==='r2v');
+          return [e.name, 'Pilar', colLoc(e), '', sec, e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall' ? (v(e.off)||'sin medir') : need.length ? need.map(k=>e[k]==null?'?':fmt(e[k])).join(' / ') : 'por ejes', '']; }
         return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':e.use?'define la forma':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):(e.ortho===false||!isOrtho(e)?'en ángulo':''), kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
       });
       doc.autoTable({...TS, startY:y+4, head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
         body:rows.length?rows:[['—','','Sin elementos','','','','','']],
         columnStyles:{3:{halign:'right'},4:{halign:'right',fontStyle:'bold'},5:{halign:'center'},6:{halign:'right'},7:{halign:'right'}}});
       y=doc.lastAutoTable.finalY+8;
+      if(P.axes.length){
+        if(y>PH-50){ doc.addPage(); y=26; }
+        doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...ink); doc.text('Ejes de referencia'+(multi?' · '+Lv.name:''), M, y);
+        doc.autoTable({...TS, startY:y+3, head:[['Eje','Posición','Distancia','Pilares sobre el eje']], tableWidth:CW,
+          body:P.axes.map(ax=>{ const g=axisGeom(ax); const R=ax.refw!=null?P.walls.find(x=>x.id===ax.refw):ax.refa!=null?P.axes.find(x=>x.id===ax.refa):null;
+            return [ax.name, g.src==='medida'&&R?`desde ${R.name}${ax.refw!=null?(ax.face==='eje'?' (eje del muro)':' (cara del muro)'):''}`:g.src==='croquis'?'sin medir':`ubicado por ${g.src}`,
+              g.src==='medida'?fmt(ax.off):'', P.cols.filter(c=>(c.ax||[]).includes(ax.id)).map(c=>c.name).join(', ')]; }),
+          columnStyles:{0:{fontStyle:'bold'},2:{halign:'right'}},
+          didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
+        y=doc.lastAutoTable.finalY+8;
+      }
       if(P.labels.length){
         if(y>PH-50){ doc.addPage(); y=26; }
         doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...ink); doc.text('Recintos'+(multi?' · '+Lv.name:''), M, y);
@@ -1783,6 +1929,7 @@ function buildRevitJSON(){
       return {id:o.id, name:o.name, kind:{door:'door', win:'window', fwin:'floor_window', gap:'opening'}[o.kind], wall:o.wall,
         center:r3(g.c), width:r3(o.len ?? OPDEF[o.kind]), height:r3(opHeight(o)), sill:r3(sillOf(o)), flip:o.flip||0, measured:o.len!=null}; }).filter(Boolean),
     rooms: P.labels.map(l=>({name:l.text, at:pt(l), height:l.h})),
+    grids: P.axes.map(ax=>{ const g=axisGeom(ax); return {name:ax.name, start:pt({x:g.e1.x-g.u.x, y:g.e1.y-g.u.y}), end:pt({x:g.e2.x+g.u.x, y:g.e2.y+g.u.y}), measured:g.src!=='croquis'}; }),
     columns: P.cols.map(c=>{ const g=colGeom(c); if(!g) return null; const H = c.mode==='wall' && g.wall ? wallHeight(g.wall).v : levelH(Lv);
       return {id:c.id, name:c.name, center:pt(g.c), width:r3(c.w??COLDEF), depth:r3(c.d??COLDEF),
         rotation:r3(-Math.atan2(g.uy,g.ux)*180/Math.PI), height:r3(H), measured:c.w!=null&&c.d!=null}; }).filter(Boolean)
@@ -1919,7 +2066,7 @@ window.addEventListener('resize', resize);
 resize();
 if(db.projects.length) openProject(db.current||db.projects[0].id); else newProject('Levantamiento');
 setOpKind('door'); setTool('ext'); orthoLabel();
-window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, colGeom, addLevel, switchLevel, nptOf, syncLevel, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
+window.__test = {get P(){return P}, PE, onMeasure, parseBosch, buildDXF, buildCSV, buildPNG, buildBackup, buildPhotoJPG, buildReport, buildRevitJSON, rectify, isOrtho, colGeom, axisGeom, colFields, addLevel, switchLevel, nptOf, syncLevel, renumber, diagChecks, axisTarget, select, setTool, openPhoto, idb, get view(){return view}};
 </script>
 </body>
 </html>

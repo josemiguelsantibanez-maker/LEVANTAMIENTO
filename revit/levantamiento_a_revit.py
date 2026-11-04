@@ -10,6 +10,7 @@ usa el nivel de Revit que esté a su cota (NPT) o se crea uno nuevo con su vista
   - Vanos vacíos: aberturas rectangulares en el muro.
   - Habitaciones con el nombre y la altura de cada recinto.
   - Pilares: columnas estructurales (o arquitectónicas si no hay) con su sección, altura y giro.
+  - Ejes de referencia como Rejillas (Grids) con su nombre (una sola vez aunque se repitan en varios niveles).
 
 Entradas:
   IN[0]  ruta del archivo .json (nodo File Path)
@@ -208,6 +209,32 @@ def column_symbol(w, d):
 
 # ---------- crear ----------
 TransactionManager.Instance.EnsureInTransaction(doc)
+
+grid_names = set()
+for g_ in FilteredElementCollector(doc).OfClass(Grid).ToElements():
+    try:
+        grid_names.add(g_.Name)
+    except Exception:
+        pass
+n_grids = 0
+for lv in data['levels']:
+    for gr in lv.get('grids', []):
+        if gr['name'] in grid_names:
+            continue
+        try:
+            a = XYZ(ft(gr['start'][0]), ft(gr['start'][1]), base_z); b = XYZ(ft(gr['end'][0]), ft(gr['end'][1]), base_z)
+            if a.DistanceTo(b) < 0.01:
+                continue
+            gg = Grid.Create(doc, Line.CreateBound(a, b))
+            try:
+                gg.Name = gr['name']
+            except Exception:
+                report.append('Aviso: no se pudo nombrar el eje %s (¿nombre repetido?)' % gr['name'])
+            grid_names.add(gr['name']); n_grids += 1
+        except Exception as ex:
+            report.append('Error en eje %s: %s' % (gr.get('name'), ex))
+if n_grids:
+    report.append('Ejes (rejillas) creados: %d' % n_grids)
 
 for lv in data['levels']:
     level, created = level_for(lv)
