@@ -149,7 +149,7 @@ button.ghost{background:transparent}
 
 <script>
 "use strict";
-const APP_VERSION = '2026-11-04 · ejes · importar';
+const APP_VERSION = '2026-11-24 · copias del croquis';
 /* ============ Constantes y estado ============ */
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
@@ -339,11 +339,35 @@ function wallOf(o, p){ return (p||P).walls.find(w=>w.id===o.wall); }
 function snapshot(){ return JSON.stringify({walls:P.walls, dims:P.dims, labels:P.labels, openings:P.openings, cols:P.cols, axes:P.axes, aligns:P.aligns, cnt:P.cnt, seq:P.seq, dirty:P.dirty!==false, rectified:!!P.rectified,
   fcnt:P.fcnt, phMeta:P.photos.map(f=>({id:f.id,x:f.x,y:f.y,name:f.name,dir:f.dir}))}); }
 function pushUndo(){ undoStack.push(snapshot()); if(undoStack.length>80) undoStack.shift(); P.dirty=true; }
+function restoreSnapshot(s){
+  const d=JSON.parse(s); const meta=d.phMeta||[]; delete d.phMeta;
+  d.seq=Math.max(d.seq||1, P.seq||1);            // nunca reutilizar ids
+  Object.assign(P, d); for(const m of meta){ const f=P.photos.find(x=>x.id===m.id); if(f){ f.x=m.x; f.y=m.y; f.name=m.name; f.dir=m.dir; } }
+}
 function undo(){
   const s = undoStack.pop(); if(!s){ toast('Nada que deshacer'); return; }
-  const d=JSON.parse(s); const meta=d.phMeta||[]; delete d.phMeta;
-  Object.assign(P, d); for(const m of meta){ const f=P.photos.find(x=>x.id===m.id); if(f){ f.x=m.x; f.y=m.y; f.name=m.name; f.dir=m.dir; } }
-  sel=null; save(); renderProps(); draw();
+  restoreSnapshot(s); sel=null; save(); renderProps(); draw();
+}
+/* ============ Copias del croquis antes de rectificar ============ */
+function savePreRect(){
+  // copia del nivel activo tal como está justo antes de rectificar (se guardan las 5 últimas)
+  const L=P.levels[P.cur]; L.preRect=L.preRect||[];
+  L.preRect.unshift({t:Date.now(), data:snapshot()}); if(L.preRect.length>5) L.preRect.length=5;
+}
+function fmtTime(t){ const d=new Date(t), z=n=>String(n).padStart(2,'0'); return `${z(d.getDate())}-${z(d.getMonth()+1)} ${z(d.getHours())}:${z(d.getMinutes())}`; }
+function openPreRect(){
+  syncLevel(); const L=P.levels[P.cur], list=L.preRect||[];
+  openSheet(`<h2>↩ Volver al croquis</h2>
+    <p style="color:var(--muted);font-size:13px">Copias de <b>${esc(L.name)}</b> guardadas justo antes de cada rectificación. Al restaurar, lo que tienes ahora queda en <b>Deshacer</b>.</p>
+    <div class="plist">${list.length ? list.map((c,i)=>{ const d=JSON.parse(c.data); return `<div class="it"><div><b>Antes de rectificar · ${fmtTime(c.t)}</b><small>${d.walls.length} muros · ${d.openings.length} vanos · ${(d.cols||[]).length} pilares${d.rectified&&!d.dirty?' · ya rectificada':' · croquis'}</small></div><button class="pri" data-rr="${i}">Restaurar</button></div>`; }).join('')
+      : '<p style="color:var(--muted)">Este nivel todavía no tiene copias: se crean solas cada vez que rectificas.</p>'}</div>
+    ${P.levels.length>1?'<p style="color:var(--muted);font-size:13px">Cada nivel tiene sus propias copias: cambia de nivel con ▤ para ver las de otro.</p>':''}
+    <div class="actions"><button id="dOk">Cerrar</button></div>`);
+  $('#dOk').onclick=closeSheet;
+  $$('[data-rr]').forEach(b=>b.onclick=async()=>{
+    const c=list[+b.dataset.rr]; const ok=await ask('Restaurar croquis', `${L.name} vuelve a como estaba el ${fmtTime(c.t)}, antes de rectificar.`, 'Restaurar'); if(!ok) return openPreRect();
+    pushUndo(); restoreSnapshot(c.data); sel=null; save(); fitView(); renderProps(); draw(); toast('Croquis restaurado ✔ (Deshacer para volver)', 3500);
+  });
 }
 function vibrate(ms){ try{ navigator.vibrate && navigator.vibrate(ms); }catch(e){} }
 function nextName(prefix){ P.cnt[prefix]=(P.cnt[prefix]||0)+1; return prefix+P.cnt[prefix]; }
@@ -1122,7 +1146,7 @@ function rectify(){
     let ch=0; for(let q=0;q<n;q++){ ch=Math.max(ch,Math.abs(x[q]-X[q])); } X=Array.from(x);
     if(ch<1e-7) break;
   }
-  pushUndo();
+  savePreRect(); pushUndo();
   const disp=nodes.map((q,k)=>({x:q.x, y:q.y, dx:X[2*k]-q.x, dy:X[2*k+1]-q.y}));
   const move=o=>{ let sw=0,sx=0,sy=0; for(const d of disp){ const wt=1/((d.x-o.x)**2+(d.y-o.y)**2+1e-6); sw+=wt; sx+=wt*d.dx; sy+=wt*d.dy; } o.x+=sx/sw; o.y+=sy/sw; };
   P.labels.forEach(move); P.photos.forEach(f=>{ if(f.x!=null) move(f); }); P.cols.forEach(c=>{ if(c.mode!=='wall') move(c); }); P.axes.forEach(a=>{ move(a.a); move(a.b); });
@@ -1136,7 +1160,7 @@ async function offerRectifyAll(why){
   syncLevel();
   const pend=P.levels.map((L,i)=>({L,i})).filter(o=>o.L.walls.some(w=>w.len!=null) && !(o.L.rectified && o.L.dirty===false));
   if(!pend.length) return true;
-  const go=await ask('Plantas sin rectificar', `Sin rectificar: ${pend.map(o=>o.L.name).join(', ')}. ¿Rectificarlas con las medidas para que ${why}?`, 'Rectificar');
+  const go=await ask('Plantas sin rectificar', `Sin rectificar: ${pend.map(o=>o.L.name).join(', ')}. ¿Rectificarlas con las medidas para que ${why}? Antes se guarda una copia de cada croquis (☰ → ↩ Volver al croquis). «Cancelar» exporta sin rectificar.`, 'Rectificar');
   if(go){ let warn=false; for(const o of pend){ const r = o.i===P.cur ? rectify() : withLevel(o.i, ()=>rectify()); if(r && (r.bad.length || r.diag.some(c=>Math.abs(c.delta)>0.03))) warn=true; }
     fitView(); draw(); if(warn) toast('Rectificadas. Hay avisos: revisa ☰ → Rectificar en cada nivel.', 4500); }
   return true;
@@ -1154,6 +1178,7 @@ function showRectify(r){
     ${r.aligns?`<p>≡ ${r.aligns} alineación(es) de eje respetadas.</p>`:''}
     ${r.unmeasured?`<p>⚠️ ${r.unmeasured} muro(s) sin medir conservaron el largo del croquis.</p>`:''}
     ${bad}${diag}
+    <p style="color:var(--muted);font-size:12px">Se guardó una copia del croquis anterior: ☰ → ↩ Volver al croquis.</p>
     <div class="actions"><button id="rUndo">Deshacer</button><button class="pri" id="dOk">Listo</button></div>`);
   $('#rUndo').onclick=()=>{ undo(); closeSheet(); toast('Rectificación deshecha'); };
   $('#dOk').onclick=closeSheet;
@@ -1960,6 +1985,7 @@ function openMenu(){
     <div class="f">Levantado por (aparece en el informe)<input id="mAuthor" value="${esc(db.settings.author||'')}" placeholder="Ej: Arq. José Miguel Santibáñez"></div>
     <h3>Planta</h3>
     <div class="grid2"><button class="pri" id="mRect">📐 Rectificar planta</button><button id="mRenum">🔢 Renumerar</button></div>
+    <button class="big" id="mPreRect" style="margin-top:8px">↩ Volver al croquis (copias antes de rectificar)</button>
     <div class="grid2" style="margin-top:8px"><button id="mAllSq">Todos los muros a escuadra</button><button id="mAutoSq">Escuadra automática (según trazo)</button></div>
     <p style="font-size:12px;color:var(--muted)">${P.rectified && P.dirty===false ? '✅ La planta está rectificada con las medidas.' : 'Rectifica al terminar de medir: la planta queda a escala real.'}</p>
     <h3>Exportar</h3>
@@ -2025,6 +2051,7 @@ function openMenu(){
   $('#sFace').onchange=e=>{ db.settings.faceDef=e.target.value; P.dirty=true; save(); draw(); };
   $('#mRect').onclick=()=>{ closeSheet(); showRectify(rectify()); };
   $('#mRenum').onclick=()=>{ renumber(); openMenu(); };
+  $('#mPreRect').onclick=openPreRect;
   $('#mAllSq').onclick=()=>{ pushUndo(); P.walls.forEach(w=>w.ortho=true); save(); draw(); toast('Todos los muros quedan a escuadra. Marca «En ángulo» solo los que correspondan.', 3500); };
   $('#mAutoSq').onclick=()=>{ pushUndo(); P.walls.forEach(w=>delete w.ortho); save(); draw(); toast('Escuadra automática: a escuadra solo los muros trazados a 0°/45°/90°', 3500); };
   $('#mClose').onclick=closeSheet;
