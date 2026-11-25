@@ -149,7 +149,7 @@ button.ghost{background:transparent}
 
 <script>
 "use strict";
-const APP_VERSION = '2026-11-24 · copias del croquis';
+const APP_VERSION = '2026-11-25 · ejes y escuadra';
 /* ============ Constantes y estado ============ */
 const SVC = '02a6c0d0-0451-4000-b000-fb3210111989';
 const CHR = '02a6c0d1-0451-4000-b000-fb3210111989';
@@ -468,7 +468,10 @@ function axisGeom(ax, p, depth){
     else { const g=axisGeom(A,p,depth+1); p0={x:g.p0.x+g.n.x*(ax.sg||1)*ax.off, y:g.p0.y+g.n.y*(ax.sg||1)*ax.off}; }
     src='medida';
   } else {
-    // sin medida propia: lo ubica un pilar sobre el eje que tenga medida su distancia a un muro paralelo
+    // sin medida propia: lo ubica un muro amarrado al eje, o un pilar sobre el eje con su distancia a un muro medida
+    const Wax=p.walls.find(w=>w.onAxis===ax.id && len(w)>1e-6);
+    if(Wax){ p0={x:Wax.a.x, y:Wax.a.y}; src=Wax.name; }
+    else
     outer: for(const c of (p.cols||[])){ if(c.mode==='wall' || !(c.ax||[]).includes(ax.id)) continue;
       for(const [wid,v,sg] of [[c.r1w,c.r1v,c.r1s],[c.r2w,c.r2v,c.r2s]]){
         if(v==null) continue; const w=p.walls.find(x=>x.id===wid); if(!w||len(w)<1e-6) continue; const Lw=len(w), wu={x:(w.b.x-w.a.x)/Lw, y:(w.b.y-w.a.y)/Lw};
@@ -492,6 +495,18 @@ function nearestParallel(ax){
   for(const w of P.walls){ const L=len(w); if(L<1e-6) continue; const wu={x:(w.b.x-w.a.x)/L, y:(w.b.y-w.a.y)/L}; if(Math.abs(wu.x*u.x+wu.y*u.y)<0.99) continue;
     const nw={x:-wu.y, y:wu.x}; const d=(ax.a.x-w.a.x)*nw.x+(ax.a.y-w.a.y)*nw.y; cand.push({w, d:Math.abs(d), sg:Math.sign(d)||1}); }
   return cand.sort((a,b)=>a.d-b.d);
+}
+function axisUnder(a, b){
+  // eje sobre el que queda un tramo (ambos extremos en su línea y la misma dirección)
+  for(const ax of P.axes){ const g=axisGeom(ax); const da=Math.abs((a.x-g.p0.x)*g.n.x+(a.y-g.p0.y)*g.n.y), db2=Math.abs((b.x-g.p0.x)*g.n.x+(b.y-g.p0.y)*g.n.y);
+    if(da<0.01 && db2<0.01) return ax; }
+  return null;
+}
+function putWallOnAxis(w, ax){
+  const g=axisGeom(ax); const Lw=len(w), wu={x:(w.b.x-w.a.x)/Lw, y:(w.b.y-w.a.y)/Lw};
+  if(Math.abs(wu.x*g.u.x+wu.y*g.u.y)<0.9){ toast('Ese eje no es paralelo al muro'); return false; }
+  for(const q of [w.a, w.b]){ const d=(q.x-g.p0.x)*g.n.x+(q.y-g.p0.y)*g.n.y; moveCoincident(q, q.x-g.n.x*d, q.y-g.n.y*d); }
+  w.onAxis=ax.id; reattach(); return true;
 }
 function axesNear(x, y, tolPx){
   return P.axes.map(a=>{ const g=axisGeom(a); const d=Math.abs((x-g.p0.x)*g.n.x+(y-g.p0.y)*g.n.y)*view.s; return {a, g, d}; }).filter(o=>o.d<tolPx).sort((a,b)=>a.d-b.d);
@@ -777,16 +792,37 @@ function snapPoint(sx, sy, from, exclPts, exclW){
   if(best) return best;
   const w=s2w(sx,sy);
   if(from && db.settings.ortho){
-    const dx=w.x-from.x, dy=w.y-from.y; const ang=Math.atan2(dy,dx); const step=Math.PI/4; const sn=Math.round(ang/step)*step;
-    if(Math.abs(ang-sn)<0.15){
+    const dx=w.x-from.x, dy=w.y-from.y; const ang=Math.atan2(dy,dx); const th=mainAxis(P.walls.filter(x=>len(x)>1e-6&&x.ortho!==false));
+    const sn=th+Math.round((ang-th)/(Math.PI/2))*(Math.PI/2);       // siempre ortogonal
+    if(true){
       const ux=Math.cos(sn), uy=Math.sin(sn); const proj=dx*ux+dy*uy;
       let bh=null, bdh=R/view.s;
       for(const hh of rayHits(from,ux,uy,exclW)){ if(Math.abs(hh.t-proj)<bdh){ bdh=Math.abs(hh.t-proj); bh=hh; } }
       if(bh!=null) return {x:from.x+ux*bh.t, y:from.y+uy*bh.t, kind:'int', w:bh.w};
+      // cruce del trazo con un eje de referencia
+      for(const ax of P.axes){ const g=axisGeom(ax); const den=ux*g.u.y-uy*g.u.x; if(Math.abs(den)<1e-9) continue;
+        const t=((g.p0.x-from.x)*g.u.y-(g.p0.y-from.y)*g.u.x)/den; if(t>0.05 && Math.abs(t-proj)<bdh){ bdh=Math.abs(t-proj); bh={t, ax:ax.id}; } }
+      if(bh!=null) return {x:from.x+ux*bh.t, y:from.y+uy*bh.t, kind:'axis', ax:bh.ax};
       const L=Math.round(proj/0.05)*0.05; return {x:from.x+ux*L, y:from.y+uy*L, kind:'ortho'};
     }
   }
-  const on=nearestOnWall(sx,sy,16,exclW); if(on) return {x:on.x, y:on.y, kind:'on', w:on.w.id};
+  const on=nearestOnWall(sx,sy,16,exclW);
+  if(on){
+    // si cerca hay un cruce de ese muro con un eje, manda el cruce
+    const W=on.w, Lw=len(W), wu={x:(W.b.x-W.a.x)/Lw, y:(W.b.y-W.a.y)/Lw};
+    for(const ax of P.axes){ const g=axisGeom(ax); const den=wu.x*g.u.y-wu.y*g.u.x; if(Math.abs(den)<1e-9) continue;
+      const t=((g.p0.x-W.a.x)*g.u.y-(g.p0.y-W.a.y)*g.u.x)/den; if(t<0||t>Lw) continue; const X={x:W.a.x+wu.x*t, y:W.a.y+wu.y*t}; const q=w2s(X);
+      if(Math.hypot(q.x-sx,q.y-sy)<22) return {x:X.x, y:X.y, kind:'on', w:W.id, ax:ax.id}; }
+    return {x:on.x, y:on.y, kind:'on', w:on.w.id};
+  }
+  // sobre un eje: primero sus cruces con otros ejes, luego la línea
+  if(P.axes.length){
+    const G2=P.axes.map(a=>({a, g:axisGeom(a)}));
+    for(let i=0;i<G2.length;i++) for(let j=i+1;j<G2.length;j++){ const A=G2[i].g, B=G2[j].g, den=A.u.x*B.u.y-A.u.y*B.u.x; if(Math.abs(den)<1e-9) continue;
+      const t=((B.p0.x-A.p0.x)*B.u.y-(B.p0.y-A.p0.y)*B.u.x)/den; const X={x:A.p0.x+A.u.x*t, y:A.p0.y+A.u.y*t}; const q=w2s(X);
+      if(Math.hypot(q.x-sx,q.y-sy)<18) return {x:X.x, y:X.y, kind:'axis'}; }
+    const near=axesNear(w.x,w.y,14)[0]; if(near){ const g=near.g, d=(w.x-g.p0.x)*g.n.x+(w.y-g.p0.y)*g.n.y; return {x:w.x-g.n.x*d, y:w.y-g.n.y*d, kind:'axis', ax:near.a.id}; }
+  }
   return {x:Math.round(w.x/0.05)*0.05, y:Math.round(w.y/0.05)*0.05, kind:'grid'};
 }
 
@@ -845,17 +881,22 @@ function renderProps(){
   const btLine = bt.state==='on' ? `<div class="row waiting">● Dispara la huincha: se llena el campo marcado en azul</div>` : '';
   if(sel.kind==='axis'){
     const g=axisGeom(e); const W=e.refw!=null?P.walls.find(x=>x.id===e.refw):null, A=e.refa!=null?P.axes.find(x=>x.id===e.refa):null; const R=W||A;
-    const on=P.cols.filter(c=>(c.ax||[]).includes(e.id)).map(c=>c.name);
+    const on=[...P.walls.filter(w=>w.onAxis===e.id).map(w=>w.name), ...P.cols.filter(c=>(c.ax||[]).includes(e.id)).map(c=>c.name)];
     box.innerHTML=`<div class="row"><span class="name">Eje</span><input id="axName" value="${esc(e.name)}" style="width:70px;font-weight:700">
         <span class="val ${g.src!=='croquis'?'okv':'miss'}" style="font-size:16px">${g.src==='medida'?'medido':g.src==='croquis'?'sin medir':'ubicado por '+esc(g.src)}</span><button class="ghost" id="pClose">✕</button></div>
       <div class="row">${R?`<label>Dist. a ${esc(R.name)} <input id="axOff" class="tgt" type="number" inputmode="decimal" step="0.01" value="${e.off??''}" style="width:72px"></label>`:'<span class="sub">Sin muro paralelo de referencia</span>'}
         ${W?`<span class="seg"><button data-axf="cara" class="${e.face!=='eje'?'on':''}">Desde cara</button><button data-axf="eje" class="${e.face==='eje'?'on':''}">Desde eje del muro</button></span>`:''}</div>
-      <div class="row"><span class="sub">${on.length?'Pilares sobre el eje: '+on.join(', ')+'. ':''}Puedes medir el eje aquí o medir un pilar que esté sobre él.</span></div>
-      <div class="row">${lastMeasure!=null&&R?`<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>`:''}<button id="axRef">Cambiar referencia</button><button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
+      <div class="row"><span class="sub">${on.length?'Sobre el eje: '+on.join(', ')+'. ':''}Puedes medir el eje aquí, o dejar que lo ubique un muro o un pilar que esté sobre él.</span></div>
+      <div class="row">${lastMeasure!=null&&R?`<button id="pUseLast">Usar ${fmt(lastMeasure)}</button>`:''}<button id="axRef">Cambiar referencia</button><button id="axExt">↔ Extender a toda la planta</button><button class="danger" id="pDel" style="margin-left:auto">Borrar</button></div>
       ${bt.state==='on'&&R?'<div class="row waiting">● Dispara la huincha: distancia del muro al eje</div>':''}`;
     $('#axName').onchange=ev=>{ pushUndo(); e.name=ev.target.value.trim()||e.name; save(); draw(); };
     if($('#axOff')) $('#axOff').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.off=v==null?null:r3(v); save(); renderProps(); draw(); };
     box.querySelectorAll('[data-axf]').forEach(b=>b.onclick=()=>{ pushUndo(); e.face=b.dataset.axf; save(); renderProps(); draw(); });
+    $('#axExt').onclick=()=>{
+      const b=bounds(); if(!b) return; const u=g.u, pts=[[b.x0,b.y0],[b.x1,b.y0],[b.x0,b.y1],[b.x1,b.y1]].map(([x,y])=>(x-g.p0.x)*u.x+(y-g.p0.y)*u.y);
+      const t0=Math.min(...pts)-0.3, t1=Math.max(...pts)+0.3; pushUndo();
+      const off={x:e.a.x-g.p0.x, y:e.a.y-g.p0.y}; const dn=off.x*g.n.x+off.y*g.n.y;          // conserva la posición del croquis
+      e.a={x:g.p0.x+u.x*t0+g.n.x*dn, y:g.p0.y+u.y*t0+g.n.y*dn}; e.b={x:g.p0.x+u.x*t1+g.n.x*dn, y:g.p0.y+u.y*t1+g.n.y*dn}; save(); draw(); };
     $('#axRef').onclick=()=>{
       // recorre muros paralelos y luego otros ejes paralelos
       const u=g.u, opts=[...nearestParallel(e).map(o=>({w:o.w.id, sg:o.sg})),
@@ -951,11 +992,15 @@ function renderProps(){
           <label>espesor <input id="pT" type="number" inputmode="decimal" step="0.01" value="${e.t}" style="width:62px"></label></div>
         <div class="row" style="margin-top:8px"><label>Altura <input id="pWH" type="number" inputmode="decimal" step="0.01" value="${e.h??''}" placeholder="${fmt(wallHeight(e).v)}" style="width:72px"></label>
           <span class="sub">${e.h!=null?'propia de este muro':'tomada de: '+esc(wallHeight(e).src)}</span></div>
-        <div class="row" style="margin-top:8px"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>${aligned}</div>`:''}
+        <div class="row" style="margin-top:8px"><button id="pMove">✥ Corregir</button><button id="pSplit">✂ Dividir</button><button id="pAlign">≡ Mismo eje que…</button>${aligned}</div>
+        <div class="row" style="margin-top:8px">${e.onAxis!=null&&P.axes.find(a=>a.id===e.onAxis)?`<button id="pUnAxis" title="Soltar del eje">◎ Eje ${esc(P.axes.find(a=>a.id===e.onAxis).name)} ✕</button>`:(P.axes.length?'<button id="pOnAxis">◎ Sobre eje…</button>':'<span class="sub">Traza ejes con la herramienta Eje para amarrar muros</span>')}</div>`:''}
         ${!isWall && !isLocator(e)?`<div class="row" style="margin-top:8px"><span class="seg"><button data-use="0" class="${!e.use?'on':''}">Solo control</button><button data-use="1" class="${e.use?'on':''}">Define la forma</button></span></div>`:''}
         ${e.len!=null?'<div class="row" style="margin-top:8px"><button id="pFit" title="Alarga o acorta el trazo para que calce con la medida">Ajustar trazo a la medida</button></div>':''}
       </div>${btLine}`;
-    box.querySelectorAll('[data-or]').forEach(b=>b.onclick=()=>{ pushUndo(); e.ortho = b.dataset.or==='1'; save(); renderProps(); draw(); });
+    box.querySelectorAll('[data-or]').forEach(b=>b.onclick=()=>{ pushUndo(); e.ortho = b.dataset.or==='1';
+      if(e.ortho){ const th=mainAxis(P.walls.filter(x=>len(x)>1e-6&&x!==e&&x.ortho!==false)); const r=relAngle(e,th); const a=th+Math.round((r.a)/(Math.PI/2))*(Math.PI/2), L=len(e);
+        moveCoincident(e.b, e.a.x+Math.cos(a)*L, e.a.y+Math.sin(a)*L); reattach(); toast(e.name+' enderezado a escuadra'); }
+      save(); renderProps(); draw(); });
     box.querySelectorAll('[data-use]').forEach(b=>b.onclick=()=>{ pushUndo(); e.use = b.dataset.use==='1'; save(); renderProps(); });
     if($('#pWH')) $('#pWH').onchange=ev=>{ const v=num(ev.target.value); pushUndo(); e.h=v==null?null:r3(v); save(); renderProps(); };
     $('#pMore').onclick=()=>{ moreOpen=!moreOpen; renderProps(); ensureVisible(); draw(); };
@@ -969,6 +1014,8 @@ function renderProps(){
       $('#pMove').onclick=()=>{ setTool('sel'); select({kind:'wall',id:e.id}); $('#hint').innerHTML='<b style="color:var(--acc)">Arrastra el muro para moverlo, o un punto azul para estirarlo o cambiar su ángulo.</b> Los muros unidos lo siguen.'; };
       $('#pSplit').onclick=()=>startPending('split', e);
       $('#pAlign').onclick=()=>startPending('align', e);
+      if($('#pOnAxis')) $('#pOnAxis').onclick=()=>startPending('wallaxis', e);
+      if($('#pUnAxis')) $('#pUnAxis').onclick=()=>{ pushUndo(); delete e.onAxis; save(); renderProps(); draw(); };
       box.querySelectorAll('[data-unal]').forEach(b=>b.onclick=()=>{ const [a,c]=b.dataset.unal.split('-').map(Number); pushUndo(); P.aligns=P.aligns.filter(al=>!(al.a===a&&al.b===c)); save(); renderProps(); });
     }
   }
@@ -978,7 +1025,7 @@ function renderProps(){
   if($('#pUseLast')) $('#pUseLast').onclick=()=>assignMeasure(lastMeasure, true);
   $('#pDel').onclick=()=>{
     pushUndo(); const arr=arrOf(sel.kind); arr.splice(arr.indexOf(e),1);
-    if(sel.kind==='axis'){ for(const c of P.cols) if(c.ax){ const g=colGeom(c); if(c.ax.includes(e.id)){ c.x=g.c.x; c.y=g.c.y; } c.ax=c.ax.filter(id=>id!==e.id); } for(const a of P.axes) if(a.refa===e.id){ a.refa=null; a.off=null; } }
+    if(sel.kind==='axis'){ for(const w2 of P.walls) if(w2.onAxis===e.id) delete w2.onAxis; for(const c of P.cols) if(c.ax){ const g=colGeom(c); if(c.ax.includes(e.id)){ c.x=g.c.x; c.y=g.c.y; } c.ax=c.ax.filter(id=>id!==e.id); } for(const a of P.axes) if(a.refa===e.id){ a.refa=null; a.off=null; } }
     if(sel.kind==='wall'){ for(const a of P.axes) if(a.refw===e.id){ a.refw=null; a.off=null; } for(const cl of P.cols) if(cl.mode==='wall' && cl.wall===e.id){ const g=colGeom(cl); cl.mode='free'; cl.x=g.c.x; cl.y=g.c.y; cl.rot=Math.atan2(g.uy,g.ux); delete cl.wall; }
       for(const cl of P.cols) if(cl.mode!=='wall'){ if(cl.r1w===e.id){ cl.r1w=null; cl.r1v=null; } if(cl.r2w===e.id){ cl.r2w=null; cl.r2v=null; } }
       P.openings=P.openings.filter(o=>o.wall!==e.id); P.aligns=P.aligns.filter(al=>al.a!==e.id&&al.b!==e.id); }
@@ -989,13 +1036,19 @@ let moreOpen=false;
 let pending=null;   // acción que espera un toque: {type:'split'|'align', id}
 function startPending(type, w){
   pending={type, id:w.id}; setTool('sel');
-  if(type==='colaxis'){ $('#hint').innerHTML=`<b style="color:var(--acc)">Toca el eje sobre el que va ${esc(w.name)}.</b>`; }
+  if(type==='colaxis'||type==='wallaxis'){ $('#hint').innerHTML=`<b style="color:var(--acc)">Toca el eje sobre el que va ${esc(w.name)}.</b>`; }
   else $('#hint').innerHTML = type==='split' ? `<b style="color:var(--acc)">Toca sobre ${esc(w.name)} el punto donde se divide.</b>` : `<b style="color:var(--acc)">Toca el muro que va en el mismo eje que ${esc(w.name)}.</b>`;
   $('#hint').innerHTML += ' <span style="pointer-events:auto;text-decoration:underline" id="pendCancel">Cancelar</span>';
   $('#pendCancel').onclick=()=>{ pending=null; setTool('sel'); };
 }
 function moveCoincident(o, nx, ny){ const ox=o.x, oy=o.y; for(const z of endpoints()) if(Math.abs(z.x-ox)<1e-6 && Math.abs(z.y-oy)<1e-6){ z.x=nx; z.y=ny; } }
 function handlePending(sx, sy){
+  if(pending.type==='wallaxis'){
+    const w=P.walls.find(x=>x.id===pending.id); pending=null; setTool('sel'); if(!w) return;
+    const q=s2w(sx,sy), hit=axesNear(q.x,q.y,26)[0]; if(!hit){ toast('Toca sobre un eje'); select({kind:'wall', id:w.id}); return; }
+    pushUndo(); if(putWallOnAxis(w, hit.a)) toast(`${w.name} sobre el eje ${hit.a.name}`); else undoStack.pop();
+    sel={kind:'wall', id:w.id}; save(); renderProps(); draw(); return;
+  }
   if(pending.type==='colaxis'){
     const c=P.cols.find(x=>x.id===pending.id); pending=null; setTool('sel'); if(!c) return;
     const hit=axesNear(s2w(sx,sy).x, s2w(sx,sy).y, 26)[0]; if(!hit){ toast('Toca sobre un eje'); select({kind:'col', id:c.id}); return; }
@@ -1141,6 +1194,19 @@ function rectify(){
       const nr={x:-dir[A.id].uy, y:dir[A.id].ux}, i=idx.get(A.a);
       for(const q of [B.a,B.b]){ const k=idx.get(q); if(k!==i) along(i,k,nr,0,1e6); }
     }
+    // muros amarrados a un eje: sobre la posición medida del eje, o alineados entre sí si el eje no tiene medida
+    for(const o of wallInfo){
+      const ax=o.w.onAxis!=null ? P.axes.find(a=>a.id===o.w.onAxis) : null; if(!ax) continue;
+      const R = ax.off!=null && ax.refw!=null ? P.walls.find(w=>w.id===ax.refw) : null;
+      if(R && R!==o.w && dir[R.id] && len(R)>1e-6){
+        const nr={x:-dir[R.id].uy, y:dir[R.id].ux}, sk={x:-(R.b.y-R.a.y)/len(R), y:(R.b.x-R.a.x)/len(R)};
+        const flip=Math.sign(sk.x*nr.x+sk.y*nr.y)||1, d=flip*(ax.sg||1)*((ax.face==='eje'?0:R.t/2)+ax.off), ir=idx.get(R.a);
+        for(const k of [o.i,o.j]) along(ir,k,nr,d,1e6);
+      } else {
+        const first=wallInfo.find(x=>x.w.onAxis===ax.id);
+        if(first && first!==o && dir[first.w.id]){ const nr={x:-dir[first.w.id].uy, y:dir[first.w.id].ux}; for(const k of [o.i,o.j]) along(first.i,k,nr,0,1e6); }
+      }
+    }
     for(let k=0;k<N;k++){ row([[2*k,1]],nodes[k].x,0.001); row([[2*k+1,1]],nodes[k].y,0.001); }
     const x=solveLin(M,v); if(!x) return null;
     let ch=0; for(let q=0;q<n;q++){ ch=Math.max(ch,Math.abs(x[q]-X[q])); } X=Array.from(x);
@@ -1279,10 +1345,10 @@ document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState=
 function setTool(t){
   tool=t; draft=null;
   $$('.tool[data-tool]').forEach(b=>b.classList.toggle('active', b.dataset.tool===t));
-  const Hn={ext:'Arrastra para dibujar un <b>muro de cerramiento</b>. Se engancha a extremos, muros y 45°/90°.',
+  const Hn={ext:'Arrastra para dibujar un <b>muro de cerramiento</b>. Con Escuadra: Sí queda siempre a 0°/90°; se engancha a extremos, muros y ejes.',
            tab:'Arrastra para dibujar un <b>tabique</b>. Puede partir o terminar sobre un muro.',
            vano:'',
-           axis:'Arrastra para trazar un <b>eje de referencia</b> (siempre a escuadra). Luego mide su distancia a un muro, o ubica un pilar sobre él.',
+           axis:'Arrastra para trazar un <b>eje de referencia</b> (siempre a escuadra). Luego mide su distancia a un muro, o amarra muros y pilares sobre él. Con Elegir, arrastra sus burbujas para cambiar su largo.',
            col:'Toca <b>sobre un muro</b> para un pilar en el muro, o <b>dentro de un recinto</b> para un pilar aislado (se refiere a los 2 muros más cercanos).',
            dim:'Arrastra para una <b>cota libre</b>: diagonales de control, retiros…',
            txt:'Toca donde quieras escribir el <b>nombre del recinto</b>.',
@@ -1319,14 +1385,28 @@ cv.addEventListener('pointerdown', e=>{
   } else if(tool==='sel'){
     const el=getEl(sel);
     if(el && sel.kind==='axis'){
-      const g=axisGeom(el); const d=Math.abs((s2w(p.x,p.y).x-g.p0.x)*g.n.x+(s2w(p.x,p.y).y-g.p0.y)*g.n.y)*view.s;
+      const g=axisGeom(el);
+      // burbujas: cambiar el largo del eje
+      for(const [end,E,sg] of [['e1',g.e1,-1],['e2',g.e2,1]]){ const bub=w2s({x:E.x+g.u.x*sg*1.0, y:E.y+g.u.y*sg*1.0}); const bq={x:bub.x+g.u.x*sg*10, y:bub.y+g.u.y*sg*10};
+        if(Math.hypot(bq.x-p.x,bq.y-p.y)<28 || Math.hypot(bub.x-p.x,bub.y-p.y)<20){ pushUndo(); gest={type:'axend', ax:el, end, start:p, moved:false}; return; } } const d=Math.abs((s2w(p.x,p.y).x-g.p0.x)*g.n.x+(s2w(p.x,p.y).y-g.p0.y)*g.n.y)*view.s;
       if(d<22){ if(g.src!=='croquis') toast('La posición del eje ya está medida'); else { pushUndo(); gest={type:'axmove', ax:el, n:g.n, a0:{...el.a}, b0:{...el.b}, start:p, moved:false}; return; } }
     }
     if(el && el.a && sel.kind!=='axis'){
       for(const end of ['a','b']){ const q=w2s(el[end]); if(Math.hypot(q.x-p.x,q.y-p.y)<24){
         const o=el[end]; const moving=endpoints().filter(z=>Math.abs(z.x-o.x)<1e-6&&Math.abs(z.y-o.y)<1e-6);
         const exclW=new Set(P.walls.filter(w=>moving.includes(w.a)||moving.includes(w.b)));
-        pushUndo(); gest={type:'drag', moving, exclW, start:p, moved:false}; return; } }
+        pushUndo();
+        if(sel.kind==='wall' && isOrtho(el)){
+          const L=len(el), u={x:(el.b.x-el.a.x)/L, y:(el.b.y-el.a.y)/L}, corner={x:o.x, y:o.y};
+          // muros perpendiculares que llegan a esta esquina: se trasladan completos para seguir a escuadra
+          const carry=new Set(moving);
+          for(const w2 of P.walls){ if(w2===el || w2.ortho===false) continue; const L2=len(w2); if(L2<1e-6) continue;
+            const perp=Math.abs((w2.b.x-w2.a.x)/L2*u.x+(w2.b.y-w2.a.y)/L2*u.y)<0.02; if(!perp) continue;
+            const far = near(w2.a,corner,1e-6) ? w2.b : near(w2.b,corner,1e-6) ? w2.a : null; if(!far) continue;
+            for(const z of endpoints()) if(near(z,far,1e-6)) carry.add(z); }
+          gest={type:'ostretch', pts:[...carry].map(z=>({z, x:z.x, y:z.y})), u, corner, start:p, moved:false}; return;
+        }
+        gest={type:'drag', moving, exclW, start:p, moved:false}; return; } }
     }
     if(el && sel.kind==='wall'){
       const a=w2s(el.a), b=w2s(el.b);
@@ -1362,6 +1442,11 @@ cv.addEventListener('pointermove', e=>{
     else if(gest.foto && gest.moved){ const w=s2w(gest.start.x,gest.start.y); aimDraft={x:w.x, y:w.y, dir:Math.atan2(p.y-gest.start.y, p.x-gest.start.x)}; draw(); }
     else if((tool==='sel'||tool==='vano'||tool==='txt'||tool==='col') && gest.moved){ view.ox=gest.v0.ox+p.x-gest.start.x; view.oy=gest.v0.oy+p.y-gest.start.y; draw(); }
   }
+  if(gest.type==='ostretch'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
+    const q=s2w(p.x,p.y); let t=(q.x-gest.corner.x)*gest.u.x+(q.y-gest.corner.y)*gest.u.y; t=Math.round(t/0.05)*0.05;
+    for(const m of gest.pts){ m.z.x=m.x+gest.u.x*t; m.z.y=m.y+gest.u.y*t; } reattach(); draw(); return;
+  }
   if(gest.type==='drag'){ gest.moved=true; const s=snapPoint(p.x,p.y,null,gest.moving,gest.exclW); for(const z of gest.moving){ z.x=s.x; z.y=s.y; if(s.w!=null && !gest.exclW.has(P.walls.find(w=>w.id===s.w))) z.on=s.w; else delete z.on; } reattach(gest.exclW); draw(); }
   if(gest.type==='aim'){
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>10) gest.moved=true; if(!gest.moved) return;
@@ -1371,6 +1456,16 @@ cv.addEventListener('pointermove', e=>{
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
     let dx=(p.x-gest.start.x)/view.s, dy=(p.y-gest.start.y)/view.s; dx=Math.round(dx/0.01)*0.01; dy=Math.round(dy/0.01)*0.01;
     for(const m of gest.moving){ m.z.x=m.x+dx; m.z.y=m.y+dy; } reattach(); draw(); return;
+  }
+  if(gest.type==='axend'){
+    if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
+    const ax=gest.ax, g=axisGeom(ax), q=s2w(p.x,p.y); let t=(q.x-g.p0.x)*g.u.x+(q.y-g.p0.y)*g.u.y;
+    t += gest.end==='e1' ? 1.0 : -1.0;                                  // la burbuja está 1 m más allá del extremo
+    const ta=(ax.a.x-g.p0.x)*g.u.x+(ax.a.y-g.p0.y)*g.u.y, tb=(ax.b.x-g.p0.x)*g.u.x+(ax.b.y-g.p0.y)*g.u.y;
+    const key = (gest.end==='e1') === (ta<=tb) ? 'a' : 'b'; const other = key==='a' ? tb : ta;
+    if(gest.end==='e1') t=Math.min(t, other-0.5); else t=Math.max(t, other+0.5);
+    const base=ax[key]; const tb0=(base.x-g.p0.x)*g.u.x+(base.y-g.p0.y)*g.u.y;
+    ax[key]={x:base.x+g.u.x*(t-tb0), y:base.y+g.u.y*(t-tb0)}; draw(); return;
   }
   if(gest.type==='axmove'){
     if(Math.hypot(p.x-gest.start.x,p.y-gest.start.y)>4) gest.moved=true; if(!gest.moved) return;
@@ -1397,7 +1492,7 @@ function endPointer(e){
   if(g.type==='aim'){ if(!g.moved){ undoStack.pop(); openPhoto(g.f.id); } else { save(); draw(); toast(g.f.name+': dirección actualizada'); } return; }
   if(g.foto && g.moved && aimDraft){ const a=aimDraft; aimDraft=null; draw(); askPhoto({x:a.x, y:a.y, dir:a.dir}); return; }
   aimDraft=null;
-  if(g.type==='drag'||g.type==='slide'||g.type==='move'||g.type==='colmove'||g.type==='axmove'){
+  if(g.type==='drag'||g.type==='slide'||g.type==='move'||g.type==='colmove'||g.type==='axmove'||g.type==='axend'||g.type==='ostretch'){
     if(!g.moved){ undoStack.pop(); if(pending){ handlePending(g.start.x,g.start.y); return; } }
     save(); draw(); return; }
   if(draft){
@@ -1408,7 +1503,9 @@ function endPointer(e){
     else if(d.kind==='axis'){ const el={id:P.seq++, a:{x:d.a.x,y:d.a.y}, b:{x:d.b.x,y:d.b.y}, off:null, face:'cara'}; el.name=nextAxisName(axisDir(el));
       const r=nearestParallel(el)[0]; if(r){ el.refw=r.w.id; el.sg=r.sg; } P.axes.push(el); sel={kind:'axis', id:el.id, field:'off'}; }
     else { const el={id:P.seq++, type:d.kind, name:nextName(d.kind==='ext'?'M':'T'), a:d.a, b:d.b, t:d.kind==='ext'?db.settings.tExt:db.settings.tTab, len:null};
-      if(!db.settings.ortho){ const r=relAngle(el,0); el.ortho = r.d<0.5*DEG; } P.walls.push(el); sel={kind:'wall',id:el.id}; }
+      if(db.settings.ortho) el.ortho=true; else { const r=relAngle(el,0); el.ortho = r.d<0.5*DEG; }
+      const onAx=axisUnder(el.a, el.b); if(onAx){ el.onAxis=onAx.id; toast(el.name+' sobre el eje '+onAx.name); }
+      P.walls.push(el); sel={kind:'wall',id:el.id}; }
     save(); renderProps(); ensureVisible(); draw(); return;
   }
   if(g.moved) return;
@@ -1879,7 +1976,7 @@ async function buildReport(){
         if(kind==='col'){ const sec = e.w==null||e.d==null ? 'sin medir' : `${fmt(e.w)} × ${fmt(e.d)}`;
           const need=colFields(e).filter(k=>k==='r1v'||k==='r2v');
           return [e.name, 'Pilar', colLoc(e), '', sec, e.mode==='wall'&&e.off!=null?FACES[faceOf(e)]:'', e.mode==='wall' ? (v(e.off)||'sin medir') : need.length ? need.map(k=>e[k]==null?'?':fmt(e[k])).join(' / ') : 'por ejes', '']; }
-        return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':e.use?'define la forma':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):(e.ortho===false||!isOrtho(e)?'en ángulo':''), kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
+        return [e.name, kind==='dim'?'Cota libre':(e.type==='ext'?'Muro':'Tabique'), kind==='dim'?(isLocator(e)?'ubicación (usada en la planta)':e.use?'define la forma':dc[e.id]?`control: planta ${fmt(dc[e.id].got)} (${deltaTxt(dc[e.id].delta)})`:'diagonal / control'):[(e.ortho===false||!isOrtho(e)?'en ángulo':''), (e.onAxis!=null&&P.axes.find(a=>a.id===e.onAxis)?'sobre eje '+P.axes.find(a=>a.id===e.onAxis).name:'')].filter(Boolean).join(', '), kind==='wall'?fmt(e.t):'', e.len==null?'sin medir':fmt(e.len), e.len!=null?FACES[faceOf(e)]:'', '', ''];
       });
       doc.autoTable({...TS, startY:y+4, head:[['Elem.','Tipo','Ubicación / referencia','Espesor','Medida / ancho','Cara','Dist. a esquina','Alto']],
         body:rows.length?rows:[['—','','Sin elementos','','','','','']],
@@ -1888,10 +1985,10 @@ async function buildReport(){
       if(P.axes.length){
         if(y>PH-50){ doc.addPage(); y=26; }
         doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(...ink); doc.text('Ejes de referencia'+(multi?' · '+Lv.name:''), M, y);
-        doc.autoTable({...TS, startY:y+3, head:[['Eje','Posición','Distancia','Pilares sobre el eje']], tableWidth:CW,
+        doc.autoTable({...TS, startY:y+3, head:[['Eje','Posición','Distancia','Elementos sobre el eje']], tableWidth:CW,
           body:P.axes.map(ax=>{ const g=axisGeom(ax); const R=ax.refw!=null?P.walls.find(x=>x.id===ax.refw):ax.refa!=null?P.axes.find(x=>x.id===ax.refa):null;
             return [ax.name, g.src==='medida'&&R?`desde ${R.name}${ax.refw!=null?(ax.face==='eje'?' (eje del muro)':' (cara del muro)'):''}`:g.src==='croquis'?'sin medir':`ubicado por ${g.src}`,
-              g.src==='medida'?fmt(ax.off):'', P.cols.filter(c=>(c.ax||[]).includes(ax.id)).map(c=>c.name).join(', ')]; }),
+              g.src==='medida'?fmt(ax.off):'', [...P.walls.filter(w=>w.onAxis===ax.id).map(w=>w.name), ...P.cols.filter(c=>(c.ax||[]).includes(ax.id)).map(c=>c.name)].join(', ')]; }),
           columnStyles:{0:{fontStyle:'bold'},2:{halign:'right'}},
           didParseCell:d=>{ if(d.section==='body' && d.cell.raw==='sin medir'){ d.cell.styles.textColor=[217,119,6]; d.cell.styles.fontStyle='italic'; } }});
         y=doc.lastAutoTable.finalY+8;
